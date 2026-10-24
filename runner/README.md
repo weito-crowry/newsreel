@@ -1,0 +1,168 @@
+# newsreel 制作ランナー
+
+動画スクリプトJSON を1本渡すだけで、**読み替え辞書適用 → VOICEVOX音声合成 → 尺計測 → シーン別レンダリング → 連結 → 完成mp4＋制作ログ** までを一気に実行するプログラムです。
+
+将来、脚本作成（LLM）がこのJSONを直接出力すれば、制作はコマンド1回で全自動になります。
+
+## 使い方
+
+合成バックエンドは2種類あります（`--synth`、既定は `core`）:
+
+- **core**: VOICEVOX core を直接使う（この Linux 環境用）。voicevox の venv の Python で実行します。
+- **http**: VOICEVOX エンジンの公式HTTP API（既定 `http://localhost:50021`）を使う。voicevox_core は不要で、通常の Python で実行できます。**Windows では公式VOICEVOXアプリがこの API を提供する**ので、この方式で JSON から完成まで完結します。手順は [README-WINDOWS.md](README-WINDOWS.md)。
+  style_id の意味は公式エンジンと core で同一です（`2` = 四国めたん ノーマル）。
+
+```bash
+cd ~/workspace/news-video-package/runner
+
+# 開発用（960x540、高速確認）— core バックエンド
+~/workspace/voicevox/venv/bin/python runner.py ../examples/openai-isolation/production.json --mode dev
+
+# 最終版（1920x1080）
+~/workspace/voicevox/venv/bin/python runner.py ../examples/openai-isolation/production.json --mode final
+
+# HTTP バックエンド（エンジンが localhost:50021 で動いている前提。通常の python3 で可）
+python3 runner.py ../examples/openai-isolation/production.json --mode dev --synth http
+
+# シーン単体だけ作り直す（例: S3）
+~/workspace/voicevox/venv/bin/python runner.py ../examples/openai-isolation/production.json --mode dev --scenes S3 --force
+
+# 合成済みの音声・尺を再利用して描画だけ
+python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip-synth
+
+# 音声だけ差し替え（映像はそのまま、再レンダリングなし）
+~/workspace/voicevox/venv/bin/python runner.py ../examples/openai-isolation/production.json \
+  --audio-only-from ~/workspace/goals/daily-ai-news-digest/files/openai-isolation-news.mp4 \
+  --out ~/workspace/news-video-package/runner/out/openai-isolation-audio-replaced.mp4
+```
+
+### 主なオプション
+
+| オプション | 意味 |
+|---|---|
+| `--mode dev\|final` | dev = `--scale 0.5`（960×540）で高速確認、final = フルHD（既定 dev） |
+| `--scenes S1,S3` | 対象シーンを限定（連結もそのシーンだけになる） |
+| `--skip-synth` | 辞書適用・合成を省略し、既存の `src/timing.json` と音声を再利用 |
+| `--force` | 既存のシーンmp4があっても再レンダリング（既定は再利用＝差分だけ速い） |
+| `--out <dir>` | 出力先（既定: `<project>/out/<動画id>-<mode>/`） |
+| `--project <dir>` | Remotion テンプレートプロジェクト（既定: `../template`） |
+| `--voicevox-dir <dir>` | VOICEVOX エンジン一式（既定: 環境変数 `VOICEVOX_DIR`、なければ `../../voicevox` = `~/workspace/voicevox`） |
+| `--voice-dir <dir>` | 読み替え辞書一式（既定: `../voice`） |
+| `--audio-only-from <mp4>` | 音声だけ差し替えモード |
+| `--synth core\|http` | 合成バックエンド（既定: core）。http は VOICEVOX エンジンの公式HTTP API を使い、通常の python で実行できる |
+| `--engine-url <url>` | `--synth http` の接続先（既定: `http://localhost:50021`） |
+
+### 出力
+
+```
+<out>/
+  openai-isolation-dev.mp4     # 完成動画（連結済み）
+  scenes/scene-S1.mp4 ...      # シーン単体のmp4（差し替え・再利用の単位）
+  concat-list.txt              # 連結リスト
+  production-log.md            # 工程別の所要時間ログ
+```
+
+### 仕組みのポイント
+
+- **シーン単位レンダリング**: シーンごとに mp4 を作り、ffmpeg の concat で連結します（まず stream copy を試し、尺が合わなければ再エンコードに自動フォールバック）。1シーンだけ直せばそのシーンだけ再描画して再連結できます。
+- **音声だけ差し替え**: 既存動画のタイミング（timing.json のオフセット）を維持したまま再合成音声を配置し、`-c:v copy` で映像を無劣化コピーします。字幕は焼き込み済みなので、配置を旧尺に合わせることでズレを防ぎます。
+- **TMPDIR**: /tmp が小さい環境（512MB tmpfs）でレンダリングが溢れて失敗した実績があるため、プロジェクト配下の `.tmp/` を必ず指定します（Windows では TEMP/TMP も同値に設定）。
+- **無音シーンの正規化**: タイトル/エンディングなど音声のないシーンには無音AACトラックを自動追加し、全シーンのストリーム構成を揃えてから連結します。
+
+## 動画スクリプトJSON スキーマ
+
+入力は1本の JSON です。Remotion プロジェクトの `src/production.json` に配置され、ランナー（合成・尺計算）と Remotion（描画）の両方が同じファイルを読みます。
+
+### トップレベル
+
+| フィールド | 型 | 必須 | 意味 |
+|---|---|---|---|
+| `schemaVersion` | number | ○ | スキーマ版数。現在は `1` |
+| `id` | string | ○ | 動画の識別子。出力ファイル名などに使う |
+| `title` | string | ○ | 動画タイトル（制作ログ等に記録） |
+| `voice` | object | ○ | 音声合成の設定（下記） |
+| `scenes` | array | ○ | シーンの配列。**この並び順がそのまま動画の順序**になる |
+
+### `voice`
+
+| フィールド | 型 | 意味 |
+|---|---|---|
+| `styleId` | number | VOICEVOX のスタイルID。`2` = 四国めたん ノーマル |
+| `speed` | number | 話速。試作の既定は `1.12` |
+| `tailSilence` | number | 文末に付ける余韻の無音（秒）。既定 `0.28` |
+
+### シーン共通フィールド
+
+| フィールド | 型 | 必須 | 意味 |
+|---|---|---|---|
+| `id` | string | ○ | シーンID。そのまま Remotion の Composition ID になる（例: `S1`, `T`, `S2` …） |
+| `type` | string | ○ | シーン種別: `hook` / `title` / `content` / `end` |
+| `shoulder` | string | 任意 | 肩テロップ（左上の常時表示ラベル） |
+| `headline` | string | 任意 | 見出しテロップ（シーン冒頭 約4.2秒 表示） |
+| `credit` | string | 任意 | 出典クレジット（左下の小表示。例: `出典: OpenAI公式ブログ`） |
+| `accentTelop` | object | 任意 | 要約テロップ（大きな強調表示）。`{"text": "9月20日"}` の形で、最初のナレーション文の間だけ右上に出る |
+| `diagram` | string | 任意 | 図解の指定（下記） |
+| `diagramData` | object | 任意 | 図解の文言・項目（下記）。話題固有の中身はコードではなくここに書く |
+| `fixedSeconds` | number | title/end で任意 | ナレーションのないシーンの尺（秒）。既定 title=3 / end=5 |
+| `narration` | string[] | content/hook で必須 | ナレーション文の配列。**1要素 = 1文**として文単位に合成され、字幕もこの単位（長文は句読点で自動分割表示）。字幕には原文が使われ、読み替え辞書は合成用テキストにだけ適用される |
+
+### シーン種別ごとの追加フィールド
+
+| type | 追加フィールド | 意味 |
+|---|---|---|
+| `hook` | `hook: {lines: string[], accent?: string, sub?: string}` | 冒頭フックの大テロップ。`lines` を行ごとに表示し、`accent` に一致する部分を黄色で強調。`sub` は2文目が始まるタイミングで出す補足文 |
+| `title` | `titleCard: {kicker: string, lines: string[], sub?: string}` | タイトルカード。`kicker` は小さな英字ラベル（例: `AI NEWS`）、`lines` が大見出し、`sub` が下部の補足（日付・副題） |
+| `content` | `diagram` など共通フィールド | 通常の解説シーン |
+| `end` | `endCard: {summary: string[], sources: {label: string, url: string}[]}` | エンディング。`summary` は要点リスト、`sources` は出典一覧（ラベルとURL） |
+
+### `diagram` / `diagramData`（図解の指定と中身）
+
+現在テンプレート（`template/`）に実装されている図解。文言・項目はすべて `diagramData` で渡します
+（テキスト中の `"\n"` は改行として表示されます）:
+
+| 値 | 内容 | `diagramData` の主なフィールド |
+|---|---|---|
+| `sandbox` | 囲い（サンドボックス）とモデル、抜け出しの段階表示 | `title` / `circle` / `note` / `step2Title` / `step2Text` / `step3Badge`（任意） |
+| `timeline` | 年表（出来事の時系列、ナレーション文ごとに段階表示） | `events: [{date, label, atUnit}]` |
+| `redteam` | 攻撃役 → 境界・監視 → 修正 の3段図解 | `attackerTitle` / `attackerText` / `middleTitle` / `middleText` / `resultText` |
+| `split` | 2カラム対比（✕ / ○） | `left: {title, mark, text}` / `right: {title, mark, text}` |
+| `summary-points` | 番号付き要点リスト（ナレーションに合わせて段階表示） | `points: string[]` |
+| （省略） | 図解なし（テロップと字幕のみ） | — |
+
+`timeline` の `atUnit` は「その文（0始まり）の開始で表示する」という指定です。
+`null` にするとその項目はシーン内では表示されません（後続シーンで触れる出来事を並べておく用途）。
+省略した場合は項目と同じ番号の文で表示されます。
+
+新しい図解が必要な場合は、テンプレートの `src/components.tsx` にコンポーネントを追加し、ここで指定できる値を増やします。
+
+### 最小例
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example-news",
+  "title": "例: 新モデルの発表",
+  "voice": { "styleId": 2, "speed": 1.12, "tailSilence": 0.28 },
+  "scenes": [
+    { "id": "S1", "type": "hook", "shoulder": "新モデル発表",
+      "hook": { "lines": ["新モデル、登場"], "accent": "新モデル", "sub": "何が変わったのか" },
+      "narration": ["新しいモデルが発表されました。"] },
+    { "id": "T", "type": "title", "fixedSeconds": 3,
+      "titleCard": { "kicker": "AI NEWS", "lines": ["新モデル発表"], "sub": "2026年10月発表" } },
+    { "id": "S2", "type": "content", "shoulder": "内容", "headline": "ポイントは3つ",
+      "credit": "出典: 公式ブログ", "diagram": "summary-points",
+      "narration": ["第一のポイントは速度です。", "第二に価格が下がりました。"] },
+    { "id": "E", "type": "end", "fixedSeconds": 5,
+      "endCard": { "summary": ["要点を1行で"], "sources": [{ "label": "公式ブログ", "url": "https://example.com/" }] } }
+  ]
+}
+```
+
+## 関連ファイル
+
+- テンプレートプロジェクト: `../template/`（`src/production.json` は作業用コピーで、実例は `../examples/openai-isolation/production.json`）
+- 読み替え辞書: `../voice/reading_dict.json` / `../voice/apply_reading_dict.py`
+- Windows で JSON から完成まで生成する場合: [README-WINDOWS.md](README-WINDOWS.md)
+- HTTP バックエンドの検証用モックサーバ（Linux 側のテスト専用）: `../tools/voicevox_mock_server.py`
+- ランナー構築・検証の記録: [RUNNER_LOG.md](RUNNER_LOG.md)
+- パッケージ全体の説明: [../README.md](../README.md)

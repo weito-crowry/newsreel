@@ -1,0 +1,18 @@
+# newsreel .gitignore
+# 依存パッケージ（npm ci で復元する）
+**/node_modules/
+
+# ランナー / Remotion の作業・生成物
+**/.tmp/
+**/out/
+**/__pycache__/
+*.py[cod]
+dist/
+
+# 合成で生成される音声と尺（runner が production.json から再生成する）
+/template/public/audio/*.wav
+/template/src/timing.json
+
+# OS / エディタ
+.DS_Store
+Thumbs.db

@@ -1,0 +1,23 @@
+{
+  "name": "newsreel-template",
+  "version": "1.0.0",
+  "description": "ニュース動画 Remotion テンプレート（production.json 駆動）",
+  "main": "index.js",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "compositions": "remotion compositions src/index.ts",
+    "render:full:dev": "remotion render src/index.ts NewsVideo out/full-dev.mp4 --scale 0.5",
+    "render:full:final": "remotion render src/index.ts NewsVideo out/full-final.mp4",
+    "render:scene": "remotion render src/index.ts",
+    "still": "remotion still src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@remotion/cli": "^4.0.469",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.469"
+  }
+}
