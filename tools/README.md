@@ -1,5 +1,19 @@
 # newsreel tools/
 
+## worker.py — ジョブ自動取得＋連続処理（ワーカーモード）
+
+「脚本済み」の題材をジョブとして自動で掴み、runner.py（サブプロセス）で生成し、
+結果を記録するまでを繰り返す常駐型ツールです。バックエンドは2種類:
+
+- `--backend sheet`: Google スプレッドシート「AIニュース収集」をジョブキューとして
+  読み書きする（gws CLI がある環境専用。claim は O/P列への書き込み＋数秒後の再読で
+  競合チェック。成功時は D列=動画化済み・Q列・R列へ記録し、メンバー行の D列も追随）。
+- `--backend dir`: ジョブフォルダを列挙して各フォルダに `result.json` を書き出す
+  （Windows ノード用。シートへの反映は Muse 側が橋渡しする）。
+
+使い方は [../runner/README.md のワーカーモード節](../runner/README.md#ワーカーモードジョブ自動取得連続処理) と
+[../runner/README-WINDOWS.md](../runner/README-WINDOWS.md) を参照してください。
+
 ## voicevox_mock_server.py — VOICEVOX公式API互換モックサーバ（テスト専用）
 
 runner.py の HTTP合成バックエンド（`--synth http`）を、公式VOICEVOXアプリなしで

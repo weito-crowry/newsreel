@@ -86,6 +86,35 @@ package.json の scripts（`studio` / `render:full:dev` / `render:full:final` / 
 - 見た目を揃えたい場合は、Google Fonts から **Noto Sans JP** をインストールしてください
   （https://fonts.google.com/noto/specimen/Noto+Sans+JP ）。
 
+## 6.5 ワーカーモード（ジョブの自動取得＋連続処理）
+
+複数の題材をまとめて連続生成したい場合は、`tools\worker.py` の **dir バックエンド** を使います。
+Windows ノードではシートへ直接は書き込まず、ジョブフォルダごとの `result.json` に結果を残します
+（シートへの反映は Muse 側が result.json を見て橋渡しします）。
+
+前提:
+
+- Drive 同期フォルダに、題材ごとのジョブフォルダ（`production.json` を含む）が展開されていること
+  （例: `D:\newsreel-scripts\scripts\<題材フォルダ>\production.json`）。
+- VOICEVOX 公式アプリを起動しておくこと（合成は `--synth http` で公式アプリの API を使います）。
+
+```powershell
+cd C:\newsreel\tools
+
+# ジョブ一覧だけ見る
+python worker.py --backend dir --jobs-dir D:\newsreel-scripts\scripts --dry-run
+
+# キューが空になるまで連続生成（最終画質）
+python worker.py --backend dir --jobs-dir D:\newsreel-scripts\scripts ^
+    --mode final --synth http --node weito-pc --idle-exit
+```
+
+- 結果は各ジョブフォルダの `result.json`（status / node / started_at / finished_at / output の絶対パス、失敗時は error）に記録されます。完成mp4はノードのローカル（`--outputs-dir`、既定は `%USERPROFILE%\workspace\newsreel-outputs`）に出力され、アップロードはしません。
+- `result.json` の status が `success` のフォルダは処理済みとしてスキップされます。再処理したい場合はそのフォルダの `result.json` を削除してください。
+- 1件だけ処理する場合は `--once`、件数を絞る場合は `--max-jobs N`、特定の題材だけは `--only-group <フォルダ名>` を付けます。
+- Ctrl+C で安全に止まります（処理中ジョブには中断の result.json を残します）。
+- **sheet バックエンド**（`--backend sheet`）は gws CLI がある環境（Muse の VM）専用です。Windows では dir バックエンドを使ってください。
+
 ## 6. トラブル時
 
 | 症状 | 対処 |

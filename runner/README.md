@@ -158,6 +158,59 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 }
 ```
 
+## ワーカーモード（ジョブ自動取得＋連続処理）
+
+`../tools/worker.py` は、ジョブキューを監視して「脚本済み」の題材を自動で掴み、
+runner.py で生成し、結果を記録するまでを繰り返す常駐型ツールです。
+runner.py 本体には手を入れず、サブプロセスとして呼び出します（通常モードの挙動は不変）。
+
+ジョブ取得バックエンドは2種類あります:
+
+| バックエンド | ジョブキュー | 結果の記録 | 想定環境 |
+|---|---|---|---|
+| `sheet` | Google スプレッドシート「AIニュース収集」のニュースタブ | シートに直接記録 | gws CLI がある環境（Muse の VM） |
+| `dir` | 指定フォルダ配下のジョブフォルダ（production.json を含むフォルダ） | 各フォルダの `result.json` | Windows ノード（Drive 同期フォルダ前提）。**シートへの反映は Muse 側が橋渡しする** |
+
+### sheet バックエンドの動き
+
+- 1題材＝1グループ（N列グループID）。代表記事の行がジョブ単位で、**D列=脚本済み かつ O列（担当ノード）が空** の代表行が未処理ジョブです。
+- **claim**: 代表行の O列にノード名、P列に開始時刻（JST）を書き、数秒待って再読します。他ノードの名前に変わっていたら譲って次のジョブへ進みます（緩い排他）。
+- **素材の対応付け**: `--scripts-dir`（既定 `~/workspace/newsreel-scripts/scripts`、Drive 共有 zip の展開先）から、(1) フォルダ名＝代表記事ID → (2) production.json の `id` → (3) エンドカード出典URLとメンバー記事URLの一致、の順で production.json を特定します。
+- **成功**: 代表行の D列を「動画化済み」にし、Q列に完了時刻、R列に `ノード名: 出力mp4の絶対パス` を記録します。グループの他メンバー行は D列だけ追随させます（脚本済み以外の行は触りません）。生成物はノードのローカル（`--outputs-dir`、既定 `~/workspace/newsreel-outputs`）に置き、アップロードはしません。
+- **失敗**: 代表行の R列にエラーの要旨を記録して次のジョブへ進みます（1件の失敗で全体は止まりません）。リトライしたい場合は、その行の O列と R列を手で消してください。
+- Ctrl+C で安全に止まります（処理中ジョブは R列に中断の記録を残します）。
+
+```bash
+# ジョブ一覧だけ見る
+python3 ../tools/worker.py --backend sheet --dry-run
+
+# 実ジョブを1件だけ dev で処理
+python3 ../tools/worker.py --backend sheet --once --mode dev --node muse-vm
+
+# キューが空になるまで連続処理
+python3 ../tools/worker.py --backend sheet --mode final --node muse-vm --idle-exit
+```
+
+### 主なオプション（worker.py）
+
+| オプション | 意味 |
+|---|---|
+| `--backend sheet\|dir` | ジョブ取得バックエンド（既定: sheet） |
+| `--node <名前>` | 担当ノード名（既定: 環境変数 `NEWSREEL_NODE`、なければホスト名） |
+| `--mode dev\|final` | 生成画質（既定: dev） |
+| `--scripts-dir <dir>` | sheet 用: 素材フォルダの親 |
+| `--jobs-dir <dir>` | dir 用: ジョブフォルダの親 |
+| `--outputs-dir <dir>` | 完成mp4の出力先（ノードのローカル） |
+| `--once` / `--max-jobs N` | 処理件数の制限 |
+| `--interval <秒>` | キューが空のときのポーリング間隔（既定: 60） |
+| `--idle-exit` | キューが空なら待たずに終了 |
+| `--only-group <ID>` | 特定のグループ（dir ではフォルダ名）だけを対象にする |
+| `--dry-run` | ジョブ一覧の表示のみ |
+| `--synth core\|http` / `--engine-url` | runner.py へそのまま渡す合成設定 |
+
+失敗したジョブと素材未解決のジョブは、worker の同一起動中は再試行されません
+（素材を後から置いた場合は worker を再起動してください）。
+
 ## 関連ファイル
 
 - テンプレートプロジェクト: `../template/`（`src/production.json` は作業用コピーで、実例は `../examples/openai-isolation/production.json`）
