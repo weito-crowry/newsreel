@@ -208,15 +208,17 @@ const boxStyle: React.CSSProperties = {
   color: INK,
 };
 
-const SandboxDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
+const SandboxDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
   const step2 = scene.units[1] ? scene.units[1].startFrame : 0;
   const step3 = scene.units[2] ? scene.units[2].startFrame : 0;
+  // 強調テロップがあるシーンでは容器を下げ、箱の高さを同量減らして底辺（615）を変えない
+  // （底辺固定なので、下端アンカーの円・補足の絶対位置は従来どおり）
   return (
-    <div style={{ position: "absolute", left: 210, top: 215, width: 1500, height: 480 }}>
+    <div style={{ position: "absolute", left: 210, top: accent ? 235 : 215, width: 1500, height: 480 }}>
       <FadeIn>
-        <div style={{ ...boxStyle, borderStyle: "dashed", width: 900, height: 400, position: "relative", padding: 36 }}>
+        <div style={{ ...boxStyle, borderStyle: "dashed", width: 900, height: accent ? 380 : 400, position: "relative", padding: 36 }}>
           <div style={{ fontSize: 40, color: "#9fc6ff", fontWeight: 700 }}>{d.title ?? "学習環境（サンドボックス）"}</div>
           <div
             style={{
@@ -326,13 +328,13 @@ const TimelineDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
   );
 };
 
-const RedTeamDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
+const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
   const step2 = scene.units[1] ? scene.units[1].startFrame : 0;
   const step3 = scene.units[2] ? scene.units[2].startFrame : 0;
   return (
-    <div style={{ position: "absolute", left: 160, top: 235, width: 1600, display: "flex", alignItems: "center", gap: 30 }}>
+    <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "center", gap: 30 }}>
       <FadeIn>
         <div style={{ ...boxStyle, width: 430, padding: "30px 28px", textAlign: "center" }}>
           <div style={{ fontSize: 42, fontWeight: 700, color: "#ffb3b3" }}>{d.attackerTitle ?? "攻撃役"}</div>
@@ -381,12 +383,12 @@ const RedTeamDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
   );
 };
 
-const SplitDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
+const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const d = scene.def.diagramData ?? {};
   const left = d.left ?? { title: "", mark: "✕", text: "" };
   const right = d.right ?? { title: "", mark: "○", text: "" };
   return (
-    <div style={{ position: "absolute", left: 210, top: 225, width: 1500, display: "flex", gap: 44 }}>
+    <div style={{ position: "absolute", left: 210, top: accent ? 265 : 225, width: 1500, display: "flex", gap: 44 }}>
       <FadeIn>
         <div style={{ ...boxStyle, width: 700, padding: "34px 38px", opacity: 0.85 }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff" }}>
@@ -407,12 +409,12 @@ const SplitDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
   );
 };
 
-const SummaryDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
+const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const items = scene.def.diagramData?.points ?? [];
   const starts = scene.units.map((u) => u.startFrame);
   return (
-    <div style={{ position: "absolute", left: 210, top: 250, width: 1500 }}>
+    <div style={{ position: "absolute", left: 210, top: accent ? 280 : 250, width: 1500 }}>
       {items.map((t, i) => {
         const at = i === 0 ? 0 : i === 1 ? starts[0] ?? 99999 : starts[1] ?? 99999;
         return (
@@ -565,15 +567,19 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
     <AbsoluteFill>
       {def.shoulder && <Shoulder text={def.shoulder} />}
       {def.type === "hook" && <HookScene scene={scene} />}
-      {def.diagram === "sandbox" && <SandboxDiagram scene={scene} />}
+      {def.diagram === "sandbox" && <SandboxDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "timeline" && <TimelineDiagram scene={scene} />}
-      {def.diagram === "redteam" && <RedTeamDiagram scene={scene} />}
-      {def.diagram === "split" && <SplitDiagram scene={scene} />}
-      {def.diagram === "summary-points" && <SummaryDiagram scene={scene} />}
+      {def.diagram === "redteam" && <RedTeamDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "split" && <SplitDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "summary-points" && <SummaryDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.accentTelop && frame < (scene.units[0]?.durFrames ?? 0) + 20 && (
-        <div style={{ position: "absolute", right: 150, top: 190 }}>
+        // 強調テロップの帯域は肩テロップ直下（top 140〜約250）に固定する。
+        // 旧配置（top 190 / 110px）は図解の先頭要素と重なったため、この帯に移し、
+        // 図解側も accent 時に開始位置を下げてある（各 Diagram の accent prop 参照）。
+        // timeline は円の上端が 274 で干渉しないため図解側は不変。
+        <div style={{ position: "absolute", right: 150, top: 140 }}>
           <FadeIn>
-            <span style={{ fontSize: 110, fontWeight: 700, color: YELLOW, textShadow: OUTLINE }}>
+            <span style={{ fontSize: 92, fontWeight: 700, color: YELLOW, textShadow: OUTLINE }}>
               {def.accentTelop.text}
             </span>
           </FadeIn>

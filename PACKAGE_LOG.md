@@ -208,3 +208,30 @@ bootstrap 記述の混入は無かった）。
   火災、1Password、OpenAI分離）は、メンバー記事が選択・脚本化されていても代表行が
   脚本済みでないためジョブとして列挙されない（仕様どおりの挙動。対象にしたい場合は
   シート側で代表行のステータスを脚本済みに揃える必要がある）。
+
+---
+
+## 強調テロップと図解の重なり修正 — 2026-10-25
+
+### 不具合と原因
+- シーン冒頭の強調テロップ（accentTelop）が図解の先頭要素と重なっていた（Kimi K3.1 Pro の S2=summary-points、S3=split で顕著）。
+- 原因のレイアウト値（template/src/components.tsx、1920×1080 座標）: 強調テロップは `top: 190 / fontSize: 110` で帯域およそ y190–322 を占有。一方、図解の先頭は sandbox 容器 top 215 / split top 225 / redteam top 235 / summary-points top 250 / timeline 円上端 274 とすべてこの帯域内に入っており、構造的に衝突していた。
+
+### 修正（変更ファイル: template/src/components.tsx のみ）
+- 強調テロップを肩テロップ（下端 ≈136）直下の帯へ移動: `top: 140 / fontSize: 92`（帯域 ≈140–250）。見出し（上端 ≈626）・字幕（上端 ≈790）とは元々干渉しない。
+- 図解側は「強調テロップのあるシーンだけ」開始位置を調整（SceneView から `accent` prop を渡す）。無いシーンの見た目は不変。出現タイミング（atUnit 連動）は変更なし。
+  - summary-points: top 250 → 280
+  - split: top 225 → 265
+  - redteam: top 235 → 270
+  - sandbox: 容器 top 215 → 235、破線ボックス height 400 → 380（底辺 615 を維持し、下端アンカーの円・補足の絶対位置は従来どおり。見出しテロップ上端 626 に箱を近づけないための措置）
+  - timeline: 円上端 274 が新しい帯域（〜250）と干渉しないため変更なし
+
+### 検証（dev 画質、静止画目視）
+- Kimi K3.1 Pro（gigazine-578fe5d4fd0c）を --skip-synth で再レンダリングし、各シーン開始+0.3秒と+2.5秒のフレームを確認:
+  - S2 summary-points: 「最長100万トークン」が要点1行目と重ならず帯域内に収まる ✓
+  - S3 split: 「低コストで高スコア」が両カードと重ならない ✓
+  - S5 timeline: 「11月4日に無償公開」が年表の円・線と重ならない ✓
+- 追加で他タイプも確認:
+  - sandbox（HackiOS gigazine-e8f96cf95b33 S3、合成から実施）: 「変更なしのiOS 16.5」が箱タイトル・円・補足と重ならない ✓（残存: 文字の下端が箱の右上隅で破線枠線を横切る箇所があるが、内容・文字との重なりではない）
+  - redteam（1Password S3）: 「パスワードは渡らない」が攻撃役ボックスと重ならない ✓
+- 検証プロジェクト: ~/workspace/video-prod/verify-accent-fix / verify-sandbox / verify-redteam
