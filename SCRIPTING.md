@@ -1,0 +1,92 @@
+# 脚本化の定型フロー
+
+「選択済み」トピックを脚本化するときの手順。機械的な部分は `tools/scripting.py` が担い、脚本の中身（ナレーション・シーン構成・図解の選択）を書くのは LLM、最終的な選択と読みの判断は人間（Tanaka）が担う。
+
+## 全体像
+
+| # | 工程 | 担当 | 道具 |
+|---|---|---|---|
+| 1 | 対象トピックの洗い出し | 自動 | `scripting.py list` |
+| 2 | 素材束ね | 自動 | `scripting.py materials <topicId>` |
+| 3 | production.json の器づくり | 自動 | `scripting.py scaffold <topicId>` |
+| 4 | 脚本作成（ナレーション・シーン構成・図解） | LLM | 素材と共通画面構成に従う |
+| 5 | 読みチェックと辞書登録 | 自動抽出 → 人間判断 → 登録 | `scripting.py readings` / `voice/apply_reading_dict.py --add` |
+| 6 | 完了処理（シート／Drive／時間ログ） | 自動 | `scripting.py finalize <topicId>` |
+| 7 | 動画生成 | ワーカー | シートのキュー経由（worker.py） |
+
+`<topicId>` はトピックの代表記事ID（= グループID）。単独記事のトピックではその記事ID。
+
+## 手順
+
+### 1. 洗い出し
+
+```sh
+python3 tools/scripting.py list
+```
+
+- 対象の定義: メンバーに「選択済み」が1件以上あり、まだ脚本化されていない（メンバーに 脚本済み 以降のステータスがなく、完成済み production.json もない）トピック。
+- 初出のトピックは state ファイル（`~/workspace/news-pipeline/scripting_state.json`）に first_seen が記録され、準備時間ログの「選定終了」の起点になる（判定同期で初めて見えた時刻の近似）。
+
+### 2. 素材束ね
+
+```sh
+python3 tools/scripting.py materials <topicId>
+```
+
+- `~/workspace/news-pipeline/scripting/<topicId>/materials.md` に、メンバー全記事の媒体・日時・URL・要約と、本文テキスト（`~/workspace/news-pipeline/texts/<id>.txt`）を束ねる。
+- 本文がない記事は素材にその旨が明記される。CodeZine のように本文取得不可の媒体は「タイトル＋要約で構成する」例外扱いとし、脚本側にもその注記を残す。
+- 脚本の事実は素材の本文からのみ構成する（要約・タイトルだけで膨らませない）。
+
+### 3. 器づくり
+
+```sh
+python3 tools/scripting.py scaffold <topicId>
+```
+
+- `production-<repId>.json` の土台を生成する: schemaVersion / id / 仮タイトル（代表記事タイトル）/ voice 既定値（styleId 2, speed 1.12, tailSilence 0.28）/ S1 hook・T title・S2 content・E end の雛形。エンドカードの出典はメンバー記事から自動で埋まる。
+- 動画タイトルは脚本作成時に付け直す（仮タイトルのまま完成にしない）。
+
+### 4. 脚本作成（LLM）
+
+- 共通画面構成（肩テロップ・図解タイプ sandbox / timeline / redteam / split / summary-points）に従い、シーンとナレーションを書く。冒頭3秒フック、15秒以内に結論、標準のニュース口調（キャラクター口調は使わない）。
+- script-<repId>.md（人間可読版）も同じ内容で作る。
+- 素材が薄い・欠けている箇所は、脚本内に注記を残す（前回バッチの慣例）。
+
+### 5. 読みチェックと辞書登録
+
+**生成前に必ず行う**（音声の差し替え rework を防ぐため）。
+
+```sh
+python3 tools/scripting.py readings <production.json のパス>
+```
+
+- 辞書（voice/reading_dict.json、189件〜）を適用した後に残る英字語を抽出し、出現回数・VOICEVOX かな・例文の一覧を出す。
+- 判定基準:
+  - かな読みが想定と違うもの、スペル読み・棒読みになるものは登録候補。
+  - 登録は3段構え（辞書の `_about` 参照）: (1) 単語単位 (2) 文脈依存はフレーズ単位 (3) それでも難しい箇所は合成テキストだけひらがな化。
+  - **一般英単語を固有名詞として登録しない**（部分一致で将来の脚本に誤爆する。前回バッチの反省）。製品名・モデル名・組織名など、読みが固定するものに限る。
+  - 読みが曖昧なもの（固有名詞の読みが資料で確定しないもの）は、候補を Tanaka に提示してから登録する。確定できるものは登録してよい。
+- 登録コマンド: `python3 voice/apply_reading_dict.py --add "表記=読み"`（複数回可）。登録後は readings を再実行し、候補が想定どおり減ったことを確認する。
+- 既知のノイズ: 「3D」の「D」のような数字に付随する断片が候補に出ることがある。実害がなければ登録せず無視してよい。
+
+### 6. 完了処理
+
+```sh
+python3 tools/scripting.py finalize <topicId>          # 本実行
+python3 tools/scripting.py finalize <topicId> --dry-run # 予定の表示のみ
+```
+
+前提: production-<repId>.json と script-<repId>.md が揃い、読みチェックが済んでいること。
+
+finalize が行うこと:
+1. **シート**: 「選択済み」メンバー全行を「脚本済み」に進める。あわせて**代表行**が 脚本済み でない場合は代表行も「脚本済み」に揃える（代表行が 却下 等のままだと worker のキューに載らない — 前回6トピックで実際に起きた不具合の再発防止）。それ以外のメンバーのステータスは触らない。
+2. **Drive**: 「newsreel/scripts/」配下に `YYYY-MM-DD_<repId>` フォルダ（日付は代表記事のニュース日時）を作り、production.json と script.md を置く。同名ファイルが既にある場合はスキップする（上書きしない）。
+3. **準備時間ログ**: prep-time-log.md に1行追記する（選定終了=first_seen / 準備着手=素材束ね時刻 / 準備完了=finalize時刻 / 実働）。
+
+### 7. 動画生成へ
+
+- finalize まで済めば、そのトピックは worker のキュー（代表行が 脚本済み・担当ノード空）に自動で載る。あとは各ノードの worker が生成し、シートに担当ノード・出力先が記録される（動画ファイル自体は共有しない）。
+
+## 完了の定義
+
+production.json と script.md が完成し、読みチェックと辞書登録が済み、finalize がシート・Drive・時間ログまで反映した状態 = 「動画生成準備完了」。

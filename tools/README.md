@@ -53,3 +53,32 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --synt
 - **本番・Windows では不要**です。Windows では公式VOICEVOXアプリが同じ API を
   `http://localhost:50021` で提供します（手順は [../runner/README-WINDOWS.md](../runner/README-WINDOWS.md)）。
 - core 側の都合で、公式形式にある `pauseLength` は常に null を返します（合成結果には影響しません）。
+
+## scripting.py — 脚本化の定型フロー支援（Muse VM 専用）
+
+「選択済み」トピックの脚本化で発生する機械的な作業を担うツールです。
+手順全体は [../SCRIPTING.md](../SCRIPTING.md) を参照してください。
+
+```sh
+python3 tools/scripting.py list                      # 脚本化対象の洗い出し
+python3 tools/scripting.py materials <topicId>       # 素材束ね（要約・本文・出典）
+python3 tools/scripting.py scaffold <topicId>        # production.json の器を生成
+python3 tools/scripting.py readings <production.json> # 読みチェック（未登録語＋VOICEVOXかな）
+python3 tools/scripting.py finalize <topicId>        # 完了処理（シート／Drive／準備時間ログ）
+```
+
+- シートアクセスは gws CLI 経由（worker.py の sheet バックエンドと同じ前提）。
+- finalize は「選択済み」メンバーと代表行を「脚本済み」に揃え（キュー投入条件）、
+  Drive「newsreel/scripts/<YYYY-MM-DD_topicId>」へ成果物を置き、prep-time-log.md に追記する。
+- 状態（選定終了・着手の起点）は ~/workspace/news-pipeline/scripting_state.json に保持。
+
+## publish_prep.py — 投稿準備の定型フロー支援（Muse VM 専用）
+
+動画化済みトピックの YouTube 投稿下書き（タイトル案＋概要欄）を「投稿パック」として
+用意するツールです。手順は [../PUBLISHING.md](../PUBLISHING.md) を参照してください。
+
+```sh
+python3 tools/publish_prep.py list      # 投稿パック未作成の動画化済みトピック
+python3 tools/publish_prep.py prepare   # 素材束ね（publish_worksheet.json）
+python3 tools/publish_prep.py apply     # 投稿パック生成＋Drive 配置
+```

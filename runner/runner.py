@@ -378,6 +378,153 @@ def concat_scenes(project: Path, scene_files: list[Path], out_file: Path, expect
     return f"再エンコード（実尺 {actual:.2f}s / 予測 {expected_sec:.2f}s）"
 
 
+# ---------------------------------------------------------------- 効果音
+
+SE_DIR = RUNNER_DIR / "assets" / "se"
+# (種別, ファイル名, ミックス時のゲインdB, シーン頭からのオフセット秒)
+# ニュース用途として控えめに: フックの一撃、タイトルの風切り、アクセントの小さなピン、締めの和音だけ。
+SE_RULES = [
+    ("hook", "intro.wav", -3.0, 0.0),   # 冒頭の音は Tanaka 提供の intro.wav（2026-10-25）
+    ("title", "whoosh.wav", -9.0, 0.0),
+    ("accent", "accent.wav", -8.0, 0.05),
+    ("end", "end.wav", -7.0, 0.10),
+]
+
+
+def plan_sound_effects(production: dict, layout_subset: list[dict]) -> list[tuple[float, str, float]]:
+    """レイアウト（対象シーンの並び）から効果音の配置 (開始秒, ファイル名, ゲインdB) を決める。"""
+    scene_by_id = {s["id"]: s for s in production["scenes"]}
+    events: list[tuple[float, str, float]] = []
+    cursor = 0.0
+    for lay in layout_subset:
+        scene = scene_by_id.get(lay["id"], {})
+        stype = scene.get("type", "")
+        for kind, fname, gain, off in SE_RULES:
+            if kind == "accent":
+                if scene.get("accentTelop"):
+                    events.append((cursor + off, fname, gain))
+            elif stype == kind:
+                events.append((cursor + off, fname, gain))
+        cursor += lay["seconds"]
+    return events
+
+
+def mix_sound_effects(project: Path, media: Path, production: dict,
+                      layout_subset: list[dict], log: Log) -> str:
+    """効果音を所定の位置に重ねる（映像は stream copy）。音量の最終調整は続く loudnorm が担う。"""
+    events = plan_sound_effects(production, layout_subset)
+    events = [e for e in events if (SE_DIR / e[1]).exists()]
+    if not events:
+        return "配置なし（アセット不足）"
+    tmp = media.with_suffix(".se.mp4")
+
+    def build(amix_tail: str):
+        filters, labels = [], ["[0:a]"]
+        for i, (off, _, gain) in enumerate(events):
+            ms = int(off * 1000)
+            filters.append(f"[{i + 1}:a]adelay={ms}|{ms},volume={gain}dB[se{i}]")
+            labels.append(f"[se{i}]")
+        filters.append(
+            f"{''.join(labels)}amix=inputs={len(events) + 1}"
+            f":duration=first:dropout_transition=0{amix_tail}[aout]")
+        cmd = [tool("ffmpeg"), "-y", "-v", "error", "-i", media.name]
+        for _, fname, _ in events:
+            cmd += ["-i", str(SE_DIR / fname)]
+        cmd += ["-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[aout]",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", tmp.name]
+        return cmd
+
+    r = run_cmd(build(":normalize=0"), cwd=media.parent)
+    if r.returncode != 0 or not tmp.exists():
+        # normalize=0 に未対応の ffmpeg では付けずに再試行（全体量は loudnorm がそろえる）
+        r = run_cmd(build(""), cwd=media.parent)
+    if r.returncode != 0 or not tmp.exists():
+        print((r.stderr or "")[-2000:], file=sys.stderr)
+        raise SystemExit("エラー: 効果音ミックスに失敗しました")
+    tmp.replace(media)
+    desc = ", ".join(f"{fname.replace('.wav', '')}@{off:.1f}s" for off, fname, _ in events)
+    return f"{len(events)}件配置（{desc}）"
+
+
+# ---------------------------------------------------------------- ラウドネス正規化
+
+LOUDNORM_TARGET = {"I": -14.0, "TP": -1.0, "LRA": 11.0}
+
+
+def measure_loudness(media: Path) -> dict | None:
+    """ffmpeg loudnorm の計測パスを実行し、測定値（input_* / target_offset）を返す。"""
+    r = run_cmd(
+        [tool("ffmpeg"), "-hide_banner", "-i", str(media), "-vn",
+         "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+        cwd=media.parent,
+    )
+    text = r.stderr or ""
+    start = text.rfind('"input_i"')
+    if start < 0:
+        return None
+    begin = text.rfind("{", 0, start)
+    end = text.find("}", start)
+    if begin < 0 or end < 0:
+        return None
+    try:
+        data = json.loads(text[begin:end + 1])
+        return {k: float(v) for k, v in data.items()
+                if k.startswith("input_") or k == "target_offset"}
+    except Exception:
+        return None
+
+
+def normalize_loudness(project: Path, media: Path, log: Log) -> str:
+    """完成mp4の音量を YouTube 基準相当（-14 LUFS / TP -1dB）に正規化する。
+
+    方式: loudnorm で計測 → 必要ゲインを volume で適用しつつ alimiter で
+    ピークを -2 dBFS に抑える → 再計測して担保する。
+    loudnorm の dynamic 補正は冒頭に強い音がある素材でピーク上限を超える
+    ことが実測で判明したため、補正そのものには使わない（計測専用）。
+    すでに基準内（±0.5 LUFS かつ TP 以下）なら何もしない。
+    """
+    t = LOUDNORM_TARGET
+    m = measure_loudness(media)
+    if not m or "input_i" not in m:
+        return "計測できなかったためスキップ"
+    before = f"{m['input_i']:.2f} LUFS / TP {m.get('input_tp', 0.0):+.2f} dB"
+    if abs(m["input_i"] - t["I"]) <= 0.5 and m.get("input_tp", 0.0) <= t["TP"]:
+        return f"{before}（基準内、そのまま）"
+
+    def apply_gain(gain_db: float, suffix: str) -> dict | None:
+        tmp = media.with_suffix(suffix)
+        r = run_cmd(
+            [tool("ffmpeg"), "-y", "-v", "error", "-i", media.name,
+             "-c:v", "copy",
+             "-af", f"volume={gain_db:.2f}dB,alimiter=limit=0.794:level=0",
+             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", tmp.name],
+            cwd=media.parent,
+        )
+        if r.returncode != 0 or not tmp.exists():
+            print((r.stderr or "")[-2000:], file=sys.stderr)
+            raise SystemExit("エラー: ラウドネス正規化に失敗しました")
+        tmp.replace(media)
+        return measure_loudness(media)
+
+    gain = t["I"] - m["input_i"]
+    after_m = apply_gain(gain, ".loudnorm.mp4")
+    passes = 1
+    # リミッターで想定より下がった場合は、差分だけもう一度ゲインして寄せる
+    if after_m and "input_i" in after_m and abs(after_m["input_i"] - t["I"]) > 0.7:
+        after_m = apply_gain(t["I"] - after_m["input_i"], ".loudnorm2.mp4")
+        passes += 1
+    # 最終ガード: それでもピークが上限超えなら、超過分だけ下げて確実に収める
+    trimmed = False
+    if after_m and after_m.get("input_tp", 0.0) > t["TP"]:
+        after_m = apply_gain(t["TP"] - after_m["input_tp"], ".loudnorm3.mp4")
+        passes += 1
+        trimmed = True
+    after = (f"{after_m['input_i']:.2f} LUFS / TP {after_m.get('input_tp', 0.0):+.2f} dB"
+             if after_m and "input_i" in after_m else "再計測不可")
+    note = f"（{passes}パス" + ("・最終トリム" if trimmed else "") + "）" if passes > 1 or trimmed else ""
+    return f"{before} → {after}（目標 {t['I']:.0f} LUFS / TP {t['TP']:.0f} dB）{note}"
+
+
 # ---------------------------------------------------------------- 音声だけ差し替え
 
 def replace_audio(
@@ -476,6 +623,10 @@ def main(argv: list[str]) -> int:
                          "http=VOICEVOXエンジン公式HTTP API（通常のpythonで実行可、Windowsでは公式アプリが提供）")
     ap.add_argument("--engine-url", default="http://localhost:50021",
                     help="--synth http の接続先（既定: http://localhost:50021）")
+    ap.add_argument("--no-loudnorm", action="store_true",
+                    help="完成mp4のラウドネス正規化（-14 LUFS / TP -1dB）を省略する")
+    ap.add_argument("--no-se", action="store_true",
+                    help="効果音（フック/タイトル/アクセント/エンド）のミックスを省略する")
     args = ap.parse_args(argv)
 
     production_path = Path(args.production).resolve()
@@ -494,6 +645,10 @@ def main(argv: list[str]) -> int:
                       args.audio_only_from.resolve(), out_file, work_dir, log,
                       backend=args.synth, engine_url=args.engine_url)
         log.step("音声差し替え（再合成＋配置＋mux）", now() - t)
+        if not args.no_loudnorm:
+            t = now()
+            summary = normalize_loudness(project, out_file, log)
+            log.step("ラウドネス正規化", now() - t, summary)
         dur = probe_duration(out_file)
         log.step("検証（ffprobe）", 0.0, f"尺 {dur:.2f}s / 映像は stream copy")
         log.write(out_file.parent / "production-log.md", production["title"],
@@ -557,6 +712,19 @@ def main(argv: list[str]) -> int:
     t = now()
     how = concat_scenes(project, scene_files, out_file, expected_target, log)
     log.step("連結（ffmpeg）", now() - t, how)
+
+    # 5.2) 効果音ミックス（フック/タイトル/アクセント/エンド）
+    if not args.no_se:
+        t = now()
+        summary = mix_sound_effects(project, out_file, production,
+                                    [by_id[tid] for tid in target_ids], log)
+        log.step("効果音ミックス", now() - t, summary)
+
+    # 5.5) ラウドネス正規化（音量の均一化: -14 LUFS / TP -1dB）
+    if not args.no_loudnorm:
+        t = now()
+        summary = normalize_loudness(project, out_file, log)
+        log.step("ラウドネス正規化", now() - t, summary)
 
     # 6) 検証
     t = now()
