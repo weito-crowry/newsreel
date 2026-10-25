@@ -84,7 +84,10 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.10 以下は pip install tomli で代替
+    import tomli as tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 

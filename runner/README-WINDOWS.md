@@ -14,7 +14,7 @@ newsreel は、動画スクリプトJSON を1本渡すだけで **読み替え�
 |---|---|---|
 | VOICEVOX 公式アプリ | https://voicevox.hiroshiba.jp/ | 合成エンジン。起動しておくと `http://localhost:50021` で API が応答する |
 | Node.js LTS（20 以上推奨） | https://nodejs.org/ | インストーラで `node` / `npm` / `npx` が PATH に入る |
-| Python 3（3.10 以上） | https://www.python.org/ または Microsoft Store | ランナー実行用。追加ライブラリは不要（標準ライブラリのみ） |
+| Python 3（3.10 以上） | https://www.python.org/ または Microsoft Store | ランナー実行用（標準ライブラリのみ）。ただし 3.10 以下の場合のみ、ワーカーの設定ファイル読み込み用に `pip install tomli` が必要（3.11 以上は不要） |
 | ffmpeg | https://ffmpeg.org/ （または `winget install ffmpeg`） | シーン連結・無音トラック追加・検証に使用。PATH を通すこと |
 | newsreel パッケージ | GitHub リポジトリを clone / ダウンロードして配置 | 配置場所は任意（例: `C:\newsreel`） |
 
