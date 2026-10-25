@@ -31,13 +31,28 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
 
 素材（production.json）の置き場所:
   sheet バックエンドでは --scripts-dir（既定 ~/workspace/newsreel-scripts/scripts、
-  Drive 共有 zip の展開先）から探す。シート行との対応付けは
+  Drive 共有フォルダの scripts）から探す。シート行との対応付けは
   (1) フォルダ名＝代表記事ID、(2) production.json の id＝代表記事ID、
   (3) エンドカード出典URLとグループ全メンバーの記事URLの一致、の順で解決する。
+  フォルダ名の規約は YYYY-MM-DD_<代表記事ID>（日付プレフィックス）で、この場合は
+  (2) の id 一致で解決される。
   dir バックエンドでは --jobs-dir 配下のフォルダ自体がジョブ。
 
 生成物はノードのローカル（--outputs-dir、既定 ~/workspace/newsreel-outputs）に
 置き、アップロードはしない。シートにはノード名とローカルパスだけを記録する。
+
+設定ファイル（TOML）:
+  ノード固有のパスや設定は、コードや GitHub に書かず、各ノードのローカル設定
+  ファイル newsreel.toml で持つ（.gitignore 済み。書式はパッケージ直下の
+  newsreel.example.toml を参照）。--config <path> で明示指定でき、省略時は
+  カレントディレクトリ → パッケージ直下の順に newsreel.toml を探す。
+  優先順位は CLI引数 > TOML（[worker] テーブル） > 既定値。
+
+辞書の自動発見（dir バックエンド）:
+  --voice-dir が明示されていない場合、<jobs-dir>/../voice/reading_dict.json
+  （Drive 共有レイアウトの辞書）があればそれを優先する。パッケージ voice/ の
+  適用スクリプトと Drive の辞書を組み合わせた作業用 voice dir を一時フォルダに
+  自動構成して runner へ渡す（元のファイルは変更しない）。
 
 使い方:
   # Muse VM（sheet バックエンド、実ジョブを1件だけ dev で処理）
@@ -50,6 +65,9 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
   python tools\\worker.py --backend dir --jobs-dir D:\\newsreel-scripts\\scripts ^
       --mode final --synth http --node weito-pc
 
+  # 設定ファイルを使って起動（ノード固有の設定は TOML 側に書く）
+  python tools\\worker.py --config C:\\newsreel\\newsreel.toml
+
   # ジョブ一覧だけ見る（claim も生成もしない）
   python3 tools/worker.py --backend sheet --dry-run
 
@@ -60,10 +78,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
+import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -388,50 +409,179 @@ def err_summary(exc: Exception, limit: int = 180) -> str:
 
 # ---------------------------------------------------------------- メイン
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description="newsreel ワーカー（ジョブ自動取得＋連続処理）")
-    ap.add_argument("--backend", choices=["sheet", "dir"], default="sheet",
+# ---------------------------------------------------------------- 設定ファイル（TOML）
+
+# TOML で指定できるキー（= argparse の dest 名）と、その型の種別。
+# 優先順位: CLI引数 > TOML（[worker] テーブル、無ければトップレベル） > 既定値
+CONFIG_KEYS: dict[str, str] = {
+    "backend": "str", "node": "str", "mode": "str",
+    "scripts_dir": "path", "jobs_dir": "path", "outputs_dir": "path",
+    "project": "path", "voice_dir": "path",
+    "synth": "str", "engine_url": "str", "runner_python": "str",
+    "gws_cli": "str", "spreadsheet_id": "str",
+    "max_jobs": "int", "once": "bool", "interval": "float",
+    "idle_exit": "bool", "claim_wait": "float", "only_group": "str",
+    "dry_run": "bool",
+}
+PATH_KEYS = {k for k, v in CONFIG_KEYS.items() if v == "path"}
+
+
+def _builtin_defaults() -> dict:
+    return {
+        "backend": "sheet",
+        "node": os.environ.get("NEWSREEL_NODE") or socket.gethostname(),
+        "mode": "dev",
+        "scripts_dir": Path.home() / "workspace" / "newsreel-scripts" / "scripts",
+        "jobs_dir": None,
+        "outputs_dir": Path.home() / "workspace" / "newsreel-outputs",
+        "project": DEFAULT_PROJECT,
+        "voice_dir": DEFAULT_VOICE_DIR,
+        "synth": "core",
+        "engine_url": "http://localhost:50021",
+        "runner_python": None,
+        "gws_cli": DEFAULT_GWS_CLI,
+        "spreadsheet_id": SPREADSHEET_ID,
+        "max_jobs": 0,
+        "once": False,
+        "interval": 60.0,
+        "idle_exit": False,
+        "claim_wait": 3.0,
+        "only_group": None,
+        "dry_run": False,
+    }
+
+
+def load_config(explicit_path: Path | None) -> tuple[dict, Path | None]:
+    """TOML 設定を読み、(設定dict, 使ったファイルのパス) を返す。
+
+    探索順: --config 明示 → ./newsreel.toml → パッケージ直下の newsreel.toml。
+    [worker] テーブルがあればそれを、無ければトップレベルをそのまま使う。
+    未知のキーは警告だけ出して読み飛ばす。
+    """
+    path: Path | None = None
+    if explicit_path is not None:
+        if not explicit_path.is_file():
+            raise SystemExit(f"エラー: 設定ファイルが見つかりません: {explicit_path}")
+        path = explicit_path
+    else:
+        for cand in (Path.cwd() / "newsreel.toml", PACKAGE_DIR / "newsreel.toml"):
+            if cand.is_file():
+                path = cand
+                break
+    if path is None:
+        return {}, None
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise SystemExit(f"エラー: 設定ファイル {path} の読み込みに失敗しました: {e}")
+    table = raw.get("worker", raw)
+    if not isinstance(table, dict):
+        raise SystemExit(f"エラー: 設定ファイル {path} の [worker] がテーブルではありません")
+    cfg: dict = {}
+    for key, val in table.items():
+        if key in CONFIG_KEYS:
+            cfg[key] = val
+        else:
+            print(f"警告: 設定ファイルの未知のキー '{key}' は無視します（{path}）",
+                  file=sys.stderr)
+    return cfg, path
+
+
+def _coerce(key: str, val, from_config: bool):
+    """TOML 由来の値を argparse と同じ型へ寄せる（CLI 由来はそのまま）。"""
+    if not from_config or val is None:
+        return val
+    kind = CONFIG_KEYS[key]
+    if kind == "path":
+        return Path(str(val)).expanduser()
+    if kind == "int":
+        return int(val)
+    if kind == "float":
+        return float(val)
+    if kind == "bool":
+        return bool(val)
+    return val
+
+
+def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
+    # 第1段: --config だけを先に拾う
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", type=Path, default=None)
+    pre_args, _ = pre.parse_known_args(argv)
+    cfg, cfg_path = load_config(pre_args.config)
+
+    # 第2段: 本パース。全オプション default=SUPPRESS にし、「明示されたもの」
+    # だけを取り出して TOML・既定値と合成する
+    ap = argparse.ArgumentParser(
+        description="newsreel ワーカー（ジョブ自動取得＋連続処理）",
+        epilog="設定ファイル: --config <path> で TOML を指定（省略時は ./newsreel.toml → "
+               "パッケージ直下の順に探す）。優先順位は CLI引数 > TOML > 既定値。"
+               "書式は newsreel.example.toml を参照。")
+    S = argparse.SUPPRESS
+    ap.add_argument("--config", type=Path, default=S,
+                    help="設定ファイル（TOML）のパス")
+    ap.add_argument("--backend", choices=["sheet", "dir"], default=S,
                     help="ジョブ取得バックエンド（既定: sheet）")
-    ap.add_argument("--node", default=os.environ.get("NEWSREEL_NODE") or socket.gethostname(),
+    ap.add_argument("--node", default=S,
                     help="ノード名。シートの担当ノード列に記録される（既定: 環境変数 NEWSREEL_NODE、なければホスト名）")
-    ap.add_argument("--mode", choices=["dev", "final"], default="dev",
+    ap.add_argument("--mode", choices=["dev", "final"], default=S,
                     help="生成画質（既定: dev）")
-    ap.add_argument("--scripts-dir", type=Path,
-                    default=Path.home() / "workspace" / "newsreel-scripts" / "scripts",
+    ap.add_argument("--scripts-dir", type=Path, default=S,
                     help="sheet 用: production.json 素材フォルダの親（Drive共有zipの展開先）")
-    ap.add_argument("--jobs-dir", type=Path, default=None,
+    ap.add_argument("--jobs-dir", type=Path, default=S,
                     help="dir 用: ジョブフォルダの親（Drive同期フォルダ等）")
-    ap.add_argument("--outputs-dir", type=Path,
-                    default=Path.home() / "workspace" / "newsreel-outputs",
+    ap.add_argument("--outputs-dir", type=Path, default=S,
                     help="完成mp4の出力先（ノードのローカル）")
-    ap.add_argument("--project", type=Path, default=DEFAULT_PROJECT,
+    ap.add_argument("--project", type=Path, default=S,
                     help="Remotion テンプレートプロジェクト")
-    ap.add_argument("--voice-dir", type=Path, default=DEFAULT_VOICE_DIR,
-                    help="読み替え辞書一式（既定: パッケージ voice/）")
-    ap.add_argument("--synth", choices=["core", "http"], default="core",
+    ap.add_argument("--voice-dir", type=Path, default=S,
+                    help="読み替え辞書一式（既定: パッケージ voice/。dir では隣接する Drive 辞書を自動発見）")
+    ap.add_argument("--synth", choices=["core", "http"], default=S,
                     help="合成バックエンド（既定: core）")
-    ap.add_argument("--engine-url", default="http://localhost:50021",
+    ap.add_argument("--engine-url", default=S,
                     help="--synth http の接続先")
-    ap.add_argument("--runner-python", default=None,
+    ap.add_argument("--runner-python", default=S,
                     help="runner.py を実行する Python（既定: core の場合は voicevox venv、http の場合は現在の Python）")
-    ap.add_argument("--gws-cli", default=DEFAULT_GWS_CLI,
+    ap.add_argument("--gws-cli", default=S,
                     help="sheet バックエンドが使う gws CLI のパス")
-    ap.add_argument("--spreadsheet-id", default=SPREADSHEET_ID,
+    ap.add_argument("--spreadsheet-id", default=S,
                     help="ジョブ管理スプレッドシートの ID")
-    ap.add_argument("--max-jobs", type=int, default=0,
+    ap.add_argument("--max-jobs", type=int, default=S,
                     help="処理するジョブ数の上限（0 = 無制限）")
-    ap.add_argument("--once", action="store_true", help="1件だけ処理して終了")
-    ap.add_argument("--interval", type=float, default=60.0,
+    ap.add_argument("--once", action="store_true", default=S, help="1件だけ処理して終了")
+    ap.add_argument("--interval", type=float, default=S,
                     help="キューが空のときのポーリング間隔（秒、既定: 60）")
-    ap.add_argument("--idle-exit", action="store_true",
+    ap.add_argument("--idle-exit", action="store_true", default=S,
                     help="キューが空なら待たずに終了する")
-    ap.add_argument("--claim-wait", type=float, default=3.0,
+    ap.add_argument("--claim-wait", type=float, default=S,
                     help="claim 書き込み後に再読するまでの待ち時間（秒、既定: 3）")
-    ap.add_argument("--only-group", default=None,
+    ap.add_argument("--only-group", default=S,
                     help="このグループID（dir ではフォルダ名）のジョブだけを対象にする")
-    ap.add_argument("--dry-run", action="store_true",
+    ap.add_argument("--dry-run", action="store_true", default=S,
                     help="ジョブ一覧を表示するだけ（claim・生成・記録をしない）")
-    args = ap.parse_args(argv)
+    cli = vars(ap.parse_args(argv))
+    cli.pop("config", None)
+
+    defaults = _builtin_defaults()
+    merged: dict = {}
+    explicit: set[str] = set()   # CLI か TOML で明示されたキー
+    for key in CONFIG_KEYS:
+        if key in cli:
+            merged[key] = cli[key]
+            explicit.add(key)
+        elif key in cfg:
+            merged[key] = _coerce(key, cfg[key], from_config=True)
+            explicit.add(key)
+        else:
+            merged[key] = defaults[key]
+    args = argparse.Namespace(**merged)
+
+    for key, choices in (("backend", ("sheet", "dir")),
+                         ("mode", ("dev", "final")),
+                         ("synth", ("core", "http"))):
+        if getattr(args, key) not in choices:
+            raise SystemExit(f"エラー: 設定 '{key}' の値が不正です: {getattr(args, key)!r}"
+                             f"（有効値: {', '.join(choices)}）")
 
     if args.runner_python is None:
         venv_py = Path.home() / "workspace" / "voicevox" / "venv" / "bin" / "python"
@@ -441,11 +591,42 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             args.runner_python = str(venv_py)
         else:
             args.runner_python = sys.executable
-    return args
+    return args, {"config_path": cfg_path, "explicit": explicit}
+
+
+def resolve_voice_dir(args: argparse.Namespace, explicit: set[str]) -> None:
+    """dir バックエンド時の辞書の自動発見。
+
+    --voice-dir が明示されていない場合、<jobs-dir>/../voice/reading_dict.json
+    （Drive 共有レイアウト: newsreel/voice/reading_dict.json）があればそれを
+    優先する。runner は「apply_reading_dict.py と同じフォルダの
+    reading_dict.json」を読むため、パッケージ voice/ のスクリプト群と Drive の
+    辞書を一時フォルダに組み合わせて作業用 voice dir を構成する。
+    元のファイル（パッケージ voice/ と Drive 側）は変更しない。
+    """
+    if args.backend != "dir" or "voice_dir" in explicit:
+        return
+    if args.jobs_dir is None:
+        return
+    drive_dict = args.jobs_dir.parent / "voice" / "reading_dict.json"
+    if not drive_dict.is_file():
+        return
+    if drive_dict.resolve() == (DEFAULT_VOICE_DIR / "reading_dict.json").resolve():
+        return  # 既に同じ辞書（パッケージ直下が jobs の隣にある構成など）
+    work = Path(tempfile.gettempdir()) / "newsreel-voice-autodiscovered"
+    work.mkdir(parents=True, exist_ok=True)
+    for py in sorted(DEFAULT_VOICE_DIR.glob("*.py")):
+        shutil.copy2(py, work / py.name)
+    shutil.copy2(drive_dict, work / "reading_dict.json")
+    args.voice_dir = work
+    log(f"辞書を自動発見: {drive_dict} を優先します（作業用 voice dir: {work}）")
 
 
 def main(argv: list[str]) -> int:
-    args = parse_args(argv)
+    args, info = parse_args(argv)
+    if info["config_path"] is not None:
+        log(f"設定ファイル: {info['config_path']}")
+    resolve_voice_dir(args, info["explicit"])
     runner = Runner(args)
     node = args.node
     log(f"newsreel worker 起動: backend={args.backend} node={node} mode={args.mode} synth={args.synth}")
@@ -465,6 +646,7 @@ def main(argv: list[str]) -> int:
             raise SystemExit("エラー: --backend dir では --jobs-dir が必要です")
         dirb = DirBackend(args.jobs_dir)
         log(f"ジョブフォルダ: {args.jobs_dir}")
+        log(f"辞書フォルダ: {args.voice_dir}")
 
     def enumerate_jobs() -> list[Job]:
         if sheet is not None:

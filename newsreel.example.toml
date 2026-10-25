@@ -1,0 +1,49 @@
+# newsreel ワーカー（tools/worker.py）設定ファイルのサンプル
+#
+# 使い方:
+#   1. このファイルを newsreel.toml という名前でコピーする
+#      （置き場所は、カレントディレクトリか、このパッケージの直下。
+#        別の場所に置く場合は worker.py に --config <path> で渡す）
+#   2. 使いたい例（Windows ノード / Muse VM）のコメントを外し、
+#      パスを自分の環境に書き換える
+#
+# newsreel.toml は .gitignore 済みなので、ノード固有のパスが
+# GitHub に上がることはありません。
+#
+# 優先順位: CLI引数 > このファイル（[worker] テーブル） > 既定値
+# 指定できるキー: backend / node / mode / scripts_dir / jobs_dir /
+# outputs_dir / project / voice_dir / synth / engine_url / runner_python /
+# gws_cli / spreadsheet_id / max_jobs / once / interval / idle_exit /
+# claim_wait / only_group / dry_run
+
+[worker]
+
+# ============================================================
+# 例1: Windows ノード（dir バックエンド＋Drive for Desktop 同期フォルダ）
+#   Drive の newsreel フォルダが D:\path\to\Googleドライブ\newsreel に
+#   同期されている想定。jobs_dir にはその scripts フォルダを指す。
+#   jobs_dir の隣の voice\reading_dict.json（Drive 共有の辞書）があれば、
+#   voice_dir を書かなくても自動で優先されます。
+#   題材フォルダ名の規約: YYYY-MM-DD_<題材ID>（ニュース日付のプレフィックス）。
+#   ※Windows パスは TOML のリテラル文字列（シングルクォート）で書くこと
+# ============================================================
+# backend = "dir"
+# node = "weito-pc"
+# mode = "final"
+# synth = "http"
+# engine_url = "http://localhost:50021"
+# jobs_dir = 'D:\path\to\Googleドライブ\newsreel\scripts'
+# outputs_dir = 'D:\path\to\newsreel-outputs'
+# idle_exit = true          # キューが空になったら終了する
+# interval = 60             # 空のときのポーリング間隔（秒）
+
+# ============================================================
+# 例2: Muse VM（sheet バックエンド、gws CLI がある環境専用）
+# ============================================================
+# backend = "sheet"
+# node = "muse-vm"
+# mode = "dev"
+# synth = "core"
+# scripts_dir = "/home/hatch/workspace/newsreel-scripts/scripts"
+# outputs_dir = "/home/hatch/workspace/newsreel-outputs"
+# idle_exit = true

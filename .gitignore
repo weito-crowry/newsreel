@@ -13,6 +13,10 @@ dist/
 /template/public/audio/*.wav
 /template/src/timing.json
 
+# ノード固有の設定ファイル（個人のパスを含むため共有しない。
+# 書式は newsreel.example.toml を参照）
+newsreel.toml
+
 # OS / エディタ
 .DS_Store
 Thumbs.db

@@ -96,6 +96,7 @@ Windows ノードではシートへ直接は書き込まず、ジョブフォル
 
 - Drive 同期フォルダに、題材ごとのジョブフォルダ（`production.json` を含む）が展開されていること
   （例: `D:\newsreel-scripts\scripts\<題材フォルダ>\production.json`）。
+  題材フォルダ名の規約は `YYYY-MM-DD_<題材ID>`（ニュース日付のプレフィックス）です。
 - VOICEVOX 公式アプリを起動しておくこと（合成は `--synth http` で公式アプリの API を使います）。
 
 ```powershell
@@ -108,6 +109,43 @@ python worker.py --backend dir --jobs-dir D:\newsreel-scripts\scripts --dry-run
 python worker.py --backend dir --jobs-dir D:\newsreel-scripts\scripts ^
     --mode final --synth http --node weito-pc --idle-exit
 ```
+
+#### 設定ファイル（TOML）でノード設定を持たせる
+
+毎回長いオプションを書く代わりに、ノード固有の設定を設定ファイル
+`newsreel.toml` にまとめられます。パッケージ直下の `newsreel.example.toml`
+をコピーして `newsreel.toml` にリネームし、自分の環境に書き換えてください
+（`newsreel.toml` は .gitignore 済みで、GitHub には上がりません）。
+優先順位は CLI引数 > TOML > 既定値です。
+
+Drive for Desktop で `newsreel` フォルダを同期している場合の設定例
+（`jobs_dir` に同期フォルダの `scripts` を指します。パスは自分の環境に
+合わせて読み替えてください。Windows パスは TOML のシングルクォートで
+囲むリテラル文字列で書きます）:
+
+```toml
+[worker]
+backend = "dir"
+node = "weito-pc"
+mode = "final"
+synth = "http"
+jobs_dir = 'D:\ドキュメント\Googleドライブ\newsreel\scripts'
+outputs_dir = 'D:\newsreel-outputs'
+idle_exit = true
+```
+
+起動はカレントディレクトリかパッケージ直下に `newsreel.toml` を置けば
+オプションなしで済みます。別の場所に置いた場合は `--config <path>` で渡します。
+
+```powershell
+cd C:\newsreel\tools
+python worker.py
+```
+
+辞書について: `jobs_dir` の隣の `voice\reading_dict.json`（上記の例では
+`D:\ドキュメント\Googleドライブ\newsreel\voice\reading_dict.json`）があれば、
+`--voice-dir` を書かなくても worker が自動でそちらを優先します
+（Drive 側で更新された辞書がそのまま使われます）。
 
 - 結果は各ジョブフォルダの `result.json`（status / node / started_at / finished_at / output の絶対パス、失敗時は error）に記録されます。完成mp4はノードのローカル（`--outputs-dir`、既定は `%USERPROFILE%\workspace\newsreel-outputs`）に出力され、アップロードはしません。
 - `result.json` の status が `success` のフォルダは処理済みとしてスキップされます。再処理したい場合はそのフォルダの `result.json` を削除してください。

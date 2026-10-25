@@ -175,7 +175,7 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
 
 - 1題材＝1グループ（N列グループID）。代表記事の行がジョブ単位で、**D列=脚本済み かつ O列（担当ノード）が空** の代表行が未処理ジョブです。
 - **claim**: 代表行の O列にノード名、P列に開始時刻（JST）を書き、数秒待って再読します。他ノードの名前に変わっていたら譲って次のジョブへ進みます（緩い排他）。
-- **素材の対応付け**: `--scripts-dir`（既定 `~/workspace/newsreel-scripts/scripts`、Drive 共有 zip の展開先）から、(1) フォルダ名＝代表記事ID → (2) production.json の `id` → (3) エンドカード出典URLとメンバー記事URLの一致、の順で production.json を特定します。
+- **素材の対応付け**: `--scripts-dir`（既定 `~/workspace/newsreel-scripts/scripts`、Drive 共有フォルダの scripts）から、(1) フォルダ名＝代表記事ID（フォルダ名の規約は `YYYY-MM-DD_<代表記事ID>`。日付部分は対応付けに使わない）→ (2) production.json の `id` → (3) エンドカード出典URLとメンバー記事URLの一致、の順で production.json を特定します。
 - **成功**: 代表行の D列を「動画化済み」にし、Q列に完了時刻、R列に `ノード名: 出力mp4の絶対パス` を記録します。グループの他メンバー行は D列だけ追随させます（脚本済み以外の行は触りません）。生成物はノードのローカル（`--outputs-dir`、既定 `~/workspace/newsreel-outputs`）に置き、アップロードはしません。
 - **失敗**: 代表行の R列にエラーの要旨を記録して次のジョブへ進みます（1件の失敗で全体は止まりません）。リトライしたい場合は、その行の O列と R列を手で消してください。
 - Ctrl+C で安全に止まります（処理中ジョブは R列に中断の記録を残します）。
@@ -191,10 +191,26 @@ python3 ../tools/worker.py --backend sheet --once --mode dev --node muse-vm
 python3 ../tools/worker.py --backend sheet --mode final --node muse-vm --idle-exit
 ```
 
+### 設定ファイル（TOML）
+
+ノード固有のパスや設定は、コマンドラインに毎回書かず、ローカルの設定ファイル
+`newsreel.toml` に持てます（[worker] テーブルに CLI と同じ名前のキーで書く。
+書式と2つの記入例はパッケージ直下の [`../newsreel.example.toml`](../newsreel.example.toml) を参照）。
+
+- 探索順: `--config <path>` の明示指定 → カレントディレクトリの `newsreel.toml` → パッケージ直下の `newsreel.toml`
+- 優先順位: **CLI引数 > TOML > 既定値**
+- `newsreel.toml` は `.gitignore` 済みです。個人のパスが GitHub に上がることはありません
+
+また **dir バックエンドでは辞書の自動発見**が働きます: `--voice-dir` が明示されて
+いない場合、`<jobs-dir>/../voice/reading_dict.json`（Drive 共有レイアウトの辞書）が
+あればそれを優先し、パッケージ voice/ の適用スクリプトと組み合わせた作業用
+voice dir を自動構成して runner に渡します（元のファイルは変更しません）。
+
 ### 主なオプション（worker.py）
 
 | オプション | 意味 |
 |---|---|
+| `--config <path>` | 設定ファイル（TOML）のパス |
 | `--backend sheet\|dir` | ジョブ取得バックエンド（既定: sheet） |
 | `--node <名前>` | 担当ノード名（既定: 環境変数 `NEWSREEL_NODE`、なければホスト名） |
 | `--mode dev\|final` | 生成画質（既定: dev） |

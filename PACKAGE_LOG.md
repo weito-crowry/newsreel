@@ -235,3 +235,47 @@ bootstrap 記述の混入は無かった）。
   - sandbox（HackiOS gigazine-e8f96cf95b33 S3、合成から実施）: 「変更なしのiOS 16.5」が箱タイトル・円・補足と重ならない ✓（残存: 文字の下端が箱の右上隅で破線枠線を横切る箇所があるが、内容・文字との重なりではない）
   - redteam（1Password S3）: 「パスワードは渡らない」が攻撃役ボックスと重ならない ✓
 - 検証プロジェクト: ~/workspace/video-prod/verify-accent-fix / verify-sandbox / verify-redteam
+
+---
+
+## ワーカーへの TOML 設定ファイル対応＋辞書の自動発見 — 2026-10-25
+
+Tanaka の要望により、ノード固有のパスや設定をコードや GitHub に書かず、
+各ノードのローカル設定ファイルで持てるようにした（変更は tools/worker.py と
+設定・ドキュメントのみ。runner.py 本体は無変更）。
+
+### 実装（tools/worker.py）
+- `--config <path>` で TOML（標準ライブラリ tomllib）を読み込む。省略時は
+  カレントディレクトリ → パッケージ直下の順に `newsreel.toml` を探す。
+- 優先順位は CLI引数 > TOML（[worker] テーブル、無ければトップレベル） > 既定値。
+  実装は argparse の全オプションを default=SUPPRESS にして明示分だけを取り出し、
+  TOML・既定値と合成する方式。未知のキーは警告のみ、backend/mode/synth の
+  TOML 値は手動で検証する。既存の CLI 挙動（--node の環境変数/ホスト名フォール
+  バック、runner-python の自動判定含む）は不変。
+- 辞書の自動発見（dir バックエンド）: `--voice-dir` が CLI/TOML のどちらでも
+  明示されていない場合、`<jobs-dir>/../voice/reading_dict.json`（Drive 共有
+  レイアウト: newsreel/voice/reading_dict.json）があれば優先する。runner が
+  「apply_reading_dict.py と同じフォルダの reading_dict.json」を読む仕様に
+  合わせ、パッケージ voice/ の *.py と Drive の辞書を一時フォルダ
+  （newsreel-voice-autodiscovered）に組み合わせて作業用 voice dir を構成する。
+  元ファイルは変更しない。
+
+### 追加・変更ファイル
+- tools/worker.py: TOML 読み込み、辞書の自動発見、起動ログに設定ファイルと
+  辞書フォルダを表示
+- newsreel.example.toml（新規）: Windows ノード（dir＋Drive 同期パス）と
+  Muse VM（sheet）の2例をコメント付きで記載。実パスはプレースホルダ
+- .gitignore: `newsreel.toml` を除外対象に追加
+- runner/README.md（ワーカーモード節）/ runner/README-WINDOWS.md（6.5節）:
+  TOML の使い方と Windows 実例を追記
+
+### 検証（この VM、すべて --dry-run）
+- TOML（backend=dir / node=test-node / jobs_dir=~/workspace/newsreel-scripts/scripts）
+  を --config で指定 → 設定値どおりに起動し、その jobs_dir から40件を列挙 ✓
+- CLI 優先: TOML と違う --node cli-node を渡すと起動ログのノード名が変わる ✓
+- 辞書の自動発見: scripts/ と voice/reading_dict.json を隣接させた構成で、
+  自動発見のログと、作業用 voice dir（apply_reading_dict.py 等＋隣接辞書の
+  バイト一致コピー）が構成されることを確認 ✓（--voice-dir 明示時は無効化される
+  ことも確認）
+- 自動探索: カレントの newsreel.toml が --config なしで拾われること、
+  設定なしの従来 CLI 実行が従来どおり動くことも確認 ✓
