@@ -46,7 +46,7 @@ from pathlib import Path
 FPS = 30
 PAD_HEAD = 0.175  # layout.ts と一致させること（2026-10-26 田中指定で従来の半分）
 PAD_TAIL = 0.225
-INTRO_GAP_AFTER = 0.30  # 冒頭効果音が終わってから発話が始まるまでの間（秒）
+INTRO_GAP_AFTER = 0.15  # 冒頭効果音が終わってから発話が始まるまでの間（秒）（2026-10-26 田中指定で 0.30→0.15）
 RUNNER_DIR = Path(__file__).resolve().parent
 PACKAGE_DIR = RUNNER_DIR.parent
 DEFAULT_PROJECT = PACKAGE_DIR / "template"

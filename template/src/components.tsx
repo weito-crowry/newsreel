@@ -114,7 +114,7 @@ export const Headline: React.FC<{ text: string }> = ({ text }) => {
       style={{
         position: "absolute",
         left: 96,
-        bottom: 330,
+        bottom: 260, // 2026-10-26 田中指定で 330→260（図解ボックスとの重なり回避に70px下げ）
         opacity,
         transform: `translateX(${interpolate(s, [0, 1], [-40, 0])}px)`,
       }}
