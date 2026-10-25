@@ -92,6 +92,10 @@ package.json の scripts（`studio` / `render:full:dev` / `render:full:final` / 
 Windows ノードではシートへ直接は書き込まず、ジョブフォルダごとの `result.json` に結果を残します
 （シートへの反映は Muse 側が result.json を見て橋渡しします）。
 
+シートへ直接書き込みたい場合は **sheetapi バックエンド**も使えます（Google Sheets API を
+OAuth 認証で直接叩く方式で、Muse の橋渡しが不要になります）。初回だけブラウザでの
+準備と認証が必要です → [シート直接連携（OAuth）](#シート直接連携oauth)。
+
 前提:
 
 - Drive 同期フォルダに、題材ごとのジョブフォルダ（`production.json` を含む）が展開されていること
@@ -151,7 +155,73 @@ python worker.py
 - `result.json` の status が `success` のフォルダは処理済みとしてスキップされます。再処理したい場合はそのフォルダの `result.json` を削除してください。
 - 1件だけ処理する場合は `--once`、件数を絞る場合は `--max-jobs N`、特定の題材だけは `--only-group <フォルダ名>` を付けます。
 - Ctrl+C で安全に止まります（処理中ジョブには中断の result.json を残します）。
-- **sheet バックエンド**（`--backend sheet`）は gws CLI がある環境（Muse の VM）専用です。Windows では dir バックエンドを使ってください。
+- **sheet バックエンド**（`--backend sheet`）は gws CLI がある環境（Muse の VM）専用です。Windows では dir バックエンドか、下記の sheetapi バックエンドを使ってください。
+
+#### シート直接連携（OAuth）
+
+sheetapi バックエンドを使うと、Windows ノードが Google スプレッドシート
+「AIニュース収集」を直接ジョブキューとして読み書きします（claim・結果記録まで
+全部シートに直接。dir バックエンドと違い、result.json の橋渡しは不要です）。
+読み書きは `tools\sheets_api.py`（標準ライブラリのみ）が Google Sheets API を
+OAuth 認証で叩きます。**初回だけ**、以下の準備と認証が必要です。
+
+**準備（Google Cloud Console、ブラウザで1回だけ）**
+
+1. [Google Cloud Console](https://console.cloud.google.com/) を開き、プロジェクトを
+   作成します（既存のプロジェクトでも構いません）。
+2. 「APIとサービス」→「ライブラリ」で **Google Sheets API** を検索して有効化します。
+3. 「APIとサービス」→「OAuth 同意画面」で、ユーザーの種類に **「外部」** を選んで
+   アプリ名などを入力し、作成します。**「テストユーザー」に自分の Google アカウントを
+   追加**してください（アプリを「公開」にしない限り、認証できるのはテストユーザー
+   だけです）。スコープの追加は不要です。
+4. 「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuth クライアント ID」で、
+   アプリケーションの種類に **「デスクトップ アプリ」** を選んで作成します。
+5. 作成後に表示される **JSON をダウンロード**し、`client_secret.json` という名前で
+   安全な場所に保存します（例: `C:\newsreel\client_secret.json`)。
+   このファイルは秘密情報です。**Drive 同期フォルダや他人と共有する場所には置かないで
+   ください**（リポジトリ内でも .gitignore 済みですが、リポジトリ外が無難です）。
+
+**認証（PowerShell で1回だけ）**
+
+```powershell
+cd C:\newsreel\tools
+python sheets_api.py auth --credentials C:\newsreel\client_secret.json
+```
+
+ブラウザが開くので、スプレッドシートを編集できる自分のアカウントでログインして
+許可します（「このアプリは確認されていません」と出たら「詳細」→「（プロジェクト名）に
+移動」で進みます）。トークンは credentials と同じフォルダに `newsreel_token.json`
+として保存され、以後は自動で更新されます。以後の起動で再認証を求められることは
+通常ありません（Google アカウント側で許可を取り消した場合などは、この認証コマンドを
+再実行してください。worker は認証が切れていると生成を始めず、手順を表示して止まります）。
+
+**起動（TOML の記入例）**
+
+`newsreel.toml` に次のように書けば、オプションなしで起動できます
+（素材フォルダは dir バックエンドの `jobs_dir` ではなく `scripts_dir` で指します）。
+
+```toml
+[worker]
+backend = "sheetapi"
+node = "weito-pc"
+mode = "final"
+synth = "http"
+sheets_credentials = 'C:\newsreel\client_secret.json'
+scripts_dir = 'D:\ドキュメント\Googleドライブ\newsreel\scripts'
+outputs_dir = 'D:\newsreel-outputs'
+idle_exit = true
+```
+
+```powershell
+cd C:\newsreel\tools
+python worker.py            # TOML がある場合
+# TOML なしで直接指定する場合:
+python worker.py --backend sheetapi --sheets-credentials C:\newsreel\client_secret.json --mode final --synth http --node weito-pc --idle-exit
+```
+
+- トークンの保存先を変えたい場合は `--sheets-token <path>`（TOML では `sheets_token`）。
+- シート上での動き（claim の競合チェック、成功/失敗の記録先）は Muse VM の
+  sheet バックエンドと完全に同じです。2つのノードで同時に使っても claim が競合を防ぎます。
 
 ## 6. トラブル時
 
@@ -161,4 +231,5 @@ python worker.py
 | `npx` / `python` / `ffmpeg` が見つからない | インストール直後は PowerShell を開き直して PATH を再読み込みする |
 | 初回描画で止まって見える | Chrome Headless Shell のダウンロード中。数分待つ |
 | コンソールの日本語が文字化けする | 表示だけの問題（ファイルは UTF-8 で正常）。気になる場合は `chcp 65001` を実行 |
+| sheetapi で「認証が必要です」と出て止まる | トークンが無い/失効しています。`python tools\sheets_api.py auth --credentials <client_secret.jsonのパス>` を再実行してください |
 | 描画が極端に遅い | `--mode dev`（scale 0.5）で確認用を先に作る。最終版だけフルHDにする |

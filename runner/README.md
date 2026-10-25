@@ -164,14 +164,15 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 runner.py で生成し、結果を記録するまでを繰り返す常駐型ツールです。
 runner.py 本体には手を入れず、サブプロセスとして呼び出します（通常モードの挙動は不変）。
 
-ジョブ取得バックエンドは2種類あります:
+ジョブ取得バックエンドは3種類あります:
 
 | バックエンド | ジョブキュー | 結果の記録 | 想定環境 |
 |---|---|---|---|
 | `sheet` | Google スプレッドシート「AIニュース収集」のニュースタブ | シートに直接記録 | gws CLI がある環境（Muse の VM） |
+| `sheetapi` | 同上（Google Sheets API を OAuth 認証で直接読み書き） | シートに直接記録 | gws CLI が無い環境（Windows ノード等）。キュー意味論は `sheet` と同一。**初回だけブラウザ認証が要る**（手順は [README-WINDOWS.md](README-WINDOWS.md) のシート直接連携の節） |
 | `dir` | 指定フォルダ配下のジョブフォルダ（production.json を含むフォルダ） | 各フォルダの `result.json` | Windows ノード（Drive 同期フォルダ前提）。**シートへの反映は Muse 側が橋渡しする** |
 
-### sheet バックエンドの動き
+### sheet バックエンドの動き（sheetapi も同じ）
 
 - 1題材＝1グループ（N列グループID）。代表記事の行がジョブ単位で、**D列=脚本済み かつ O列（担当ノード）が空** の代表行が未処理ジョブです。
 - **claim**: 代表行の O列にノード名、P列に開始時刻（JST）を書き、数秒待って再読します。他ノードの名前に変わっていたら譲って次のジョブへ進みます（緩い排他）。
@@ -189,6 +190,9 @@ python3 ../tools/worker.py --backend sheet --once --mode dev --node muse-vm
 
 # キューが空になるまで連続処理
 python3 ../tools/worker.py --backend sheet --mode final --node muse-vm --idle-exit
+
+# sheetapi（Sheets API 直接連携。要・初回認証。下記 TOML 例も参照）
+python ../tools/worker.py --backend sheetapi --sheets-credentials C:\newsreel\client_secret.json --mode final --synth http --node weito-pc --idle-exit
 ```
 
 ### 設定ファイル（TOML）
@@ -211,10 +215,12 @@ voice dir を自動構成して runner に渡します（元のファイルは�
 | オプション | 意味 |
 |---|---|
 | `--config <path>` | 設定ファイル（TOML）のパス |
-| `--backend sheet\|dir` | ジョブ取得バックエンド（既定: sheet） |
+| `--backend sheet\|dir\|sheetapi` | ジョブ取得バックエンド（既定: sheet） |
 | `--node <名前>` | 担当ノード名（既定: 環境変数 `NEWSREEL_NODE`、なければホスト名） |
 | `--mode dev\|final` | 生成画質（既定: dev） |
-| `--scripts-dir <dir>` | sheet 用: 素材フォルダの親 |
+| `--scripts-dir <dir>` | sheet / sheetapi 用: 素材フォルダの親 |
+| `--sheets-credentials <path>` | sheetapi 用: OAuth クライアントJSONのパス（必須） |
+| `--sheets-token <path>` | sheetapi 用: トークンファイルのパス（既定: credentials と同じフォルダの `newsreel_token.json`） |
 | `--jobs-dir <dir>` | dir 用: ジョブフォルダの親 |
 | `--outputs-dir <dir>` | 完成mp4の出力先（ノードのローカル） |
 | `--once` / `--max-jobs N` | 処理件数の制限 |

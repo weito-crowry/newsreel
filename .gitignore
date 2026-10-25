@@ -17,6 +17,11 @@ dist/
 # 書式は newsreel.example.toml を参照）
 newsreel.toml
 
+# Sheets API 直接連携（sheetapi）の秘密情報
+# （OAuth クライアントJSONとトークンは絶対に共有しない）
+client_secret*.json
+newsreel_token.json
+
 # OS / エディタ
 .DS_Store
 Thumbs.db

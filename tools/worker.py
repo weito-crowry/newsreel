@@ -6,11 +6,21 @@
 runner.py 本体には手を入れず、サブプロセスとして呼び出します
 （通常モード＝単発生成の挙動は変わりません）。
 
-ジョブ取得バックエンドは2種類あります（--backend）:
+ジョブ取得バックエンドは3種類あります（--backend）:
 
   sheet : Google スプレッドシート「AIニュース収集」のニュースタブをジョブキュー
           として使う。読み書きは gws CLI（/opt/hatch/bin/hatch_gws_cli）経由。
           Muse の VM など gws CLI がある環境専用。
+
+  sheetapi : 同じシートをジョブキューとして使うが、読み書きは Google Sheets
+          API を OAuth 認証で直接叩く（tools/sheets_api.py、標準ライブラリのみ）。
+          キュー意味論は sheet と完全に同じで、実装だけが違う。gws CLI が無い
+          環境（Tanaka の Windows ノード等）でも Muse の橋渡しなしにシートへ
+          直接記録できる。初回だけ認証が要る:
+            python tools/sheets_api.py auth --credentials <クライアントJSON>
+          以後は --sheets-credentials <クライアントJSON> を指定して使う
+          （トークンは credentials と同じフォルダの newsreel_token.json に
+          自動保存され、自動更新される。再認証が要る場合はエラーで止まる）。
             - 1題材＝1グループ（N列グループID）。代表記事の行がジョブ単位。
             - D列=脚本済み かつ O列（担当ノード）が空の代表行が未処理ジョブ。
             - claim: 代表行の O列にノード名、P列に開始時刻（JST）を書き、
@@ -65,6 +75,11 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
   python tools\\worker.py --backend dir --jobs-dir D:\\newsreel-scripts\\scripts ^
       --mode final --synth http --node weito-pc
 
+  # Windows ノード（sheetapi バックエンド、シートへ直接連携。要・初回認証）
+  python tools\\worker.py --backend sheetapi ^
+      --sheets-credentials C:\\newsreel\\client_secret.json ^
+      --mode final --synth http --node weito-pc
+
   # 設定ファイルを使って起動（ノード固有の設定は TOML 側に書く）
   python tools\\worker.py --config C:\\newsreel\\newsreel.toml
 
@@ -90,6 +105,8 @@ except ModuleNotFoundError:  # Python 3.10 以下は pip install tomli で代替
     import tomli as tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from sheets_api import SheetsAuthNeeded, SheetsClient, default_token_path
 
 JST = timezone(timedelta(hours=9))
 PACKAGE_DIR = Path(__file__).resolve().parent.parent
@@ -294,6 +311,39 @@ class SheetBackend:
         )
 
 
+class SheetApiBackend(SheetBackend):
+    """SheetBackend と同じキュー意味論で、読み書きだけ Sheets API 経由にする。
+
+    list_jobs / claim / record_* は親クラスの実装をそのまま使う（違いは
+    read_rows / read_row / batch_update の3プリミティブだけ）。
+    """
+
+    def __init__(self, client: SheetsClient, spreadsheet_id: str) -> None:
+        self.client = client
+        self.sid = spreadsheet_id
+
+    def read_rows(self) -> list[list[str]]:
+        vals = self.client.get_values(self.sid, f"{SHEET_NAME}!A1:R2000")
+        rows = []
+        for r in vals:
+            rows.append([str(c) for c in r] + [""] * (NCOLS - len(r)))
+        return rows
+
+    def read_row(self, rownum: int) -> list[str]:
+        vals = self.client.get_values(
+            self.sid, f"{SHEET_NAME}!A{rownum}:R{rownum}")
+        r = [str(c) for c in vals[0]] if vals else []
+        return r + [""] * (NCOLS - len(r))
+
+    def batch_update(self, updates: list[tuple[str, list[list[str]]]]) -> None:
+        """updates: [(range, values), ...] を values:batchUpdate でまとめて書く。"""
+        data = [
+            {"range": rng, "majorDimension": "ROWS", "values": vals}
+            for rng, vals in updates
+        ]
+        self.client.batch_update_values(self.sid, data)
+
+
 # ---------------------------------------------------------------- dir バックエンド
 
 class DirBackend:
@@ -422,6 +472,7 @@ CONFIG_KEYS: dict[str, str] = {
     "project": "path", "voice_dir": "path",
     "synth": "str", "engine_url": "str", "runner_python": "str",
     "gws_cli": "str", "spreadsheet_id": "str",
+    "sheets_credentials": "path", "sheets_token": "path",
     "max_jobs": "int", "once": "bool", "interval": "float",
     "idle_exit": "bool", "claim_wait": "float", "only_group": "str",
     "dry_run": "bool",
@@ -444,6 +495,8 @@ def _builtin_defaults() -> dict:
         "runner_python": None,
         "gws_cli": DEFAULT_GWS_CLI,
         "spreadsheet_id": SPREADSHEET_ID,
+        "sheets_credentials": None,
+        "sheets_token": None,
         "max_jobs": 0,
         "once": False,
         "interval": 60.0,
@@ -523,14 +576,14 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
     S = argparse.SUPPRESS
     ap.add_argument("--config", type=Path, default=S,
                     help="設定ファイル（TOML）のパス")
-    ap.add_argument("--backend", choices=["sheet", "dir"], default=S,
+    ap.add_argument("--backend", choices=["sheet", "dir", "sheetapi"], default=S,
                     help="ジョブ取得バックエンド（既定: sheet）")
     ap.add_argument("--node", default=S,
                     help="ノード名。シートの担当ノード列に記録される（既定: 環境変数 NEWSREEL_NODE、なければホスト名）")
     ap.add_argument("--mode", choices=["dev", "final"], default=S,
                     help="生成画質（既定: dev）")
     ap.add_argument("--scripts-dir", type=Path, default=S,
-                    help="sheet 用: production.json 素材フォルダの親（Drive共有zipの展開先）")
+                    help="sheet / sheetapi 用: production.json 素材フォルダの親（Drive 共有フォルダの scripts）")
     ap.add_argument("--jobs-dir", type=Path, default=S,
                     help="dir 用: ジョブフォルダの親（Drive同期フォルダ等）")
     ap.add_argument("--outputs-dir", type=Path, default=S,
@@ -549,6 +602,10 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
                     help="sheet バックエンドが使う gws CLI のパス")
     ap.add_argument("--spreadsheet-id", default=S,
                     help="ジョブ管理スプレッドシートの ID")
+    ap.add_argument("--sheets-credentials", type=Path, default=S,
+                    help="sheetapi 用: Google Cloud Console から取得した OAuth クライアントJSONのパス")
+    ap.add_argument("--sheets-token", type=Path, default=S,
+                    help="sheetapi 用: トークンファイルのパス（既定: credentials と同じフォルダの newsreel_token.json）")
     ap.add_argument("--max-jobs", type=int, default=S,
                     help="処理するジョブ数の上限（0 = 無制限）")
     ap.add_argument("--once", action="store_true", default=S, help="1件だけ処理して終了")
@@ -579,7 +636,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
             merged[key] = defaults[key]
     args = argparse.Namespace(**merged)
 
-    for key, choices in (("backend", ("sheet", "dir")),
+    for key, choices in (("backend", ("sheet", "dir", "sheetapi")),
                          ("mode", ("dev", "final")),
                          ("synth", ("core", "http"))):
         if getattr(args, key) not in choices:
@@ -637,11 +694,26 @@ def main(argv: list[str]) -> int:
     sheet: SheetBackend | None = None
     dirb: DirBackend | None = None
     index: MaterialIndex | None = None
-    if args.backend == "sheet":
-        if not Path(args.gws_cli).exists():
-            raise SystemExit(f"エラー: gws CLI が見つかりません: {args.gws_cli}"
-                             "（sheet バックエンドは gws CLI のある環境専用です）")
-        sheet = SheetBackend(args.gws_cli, args.spreadsheet_id)
+    if args.backend in ("sheet", "sheetapi"):
+        if args.backend == "sheet":
+            if not Path(args.gws_cli).exists():
+                raise SystemExit(f"エラー: gws CLI が見つかりません: {args.gws_cli}"
+                                 "（sheet バックエンドは gws CLI のある環境専用です）")
+            sheet = SheetBackend(args.gws_cli, args.spreadsheet_id)
+        else:
+            if args.sheets_credentials is None:
+                raise SystemExit(
+                    "エラー: sheetapi バックエンドでは --sheets-credentials "
+                    "（Google Cloud Console から取得した OAuth クライアントJSON）が必須です")
+            token_path = (args.sheets_token
+                          or default_token_path(args.sheets_credentials))
+            try:
+                client = SheetsClient(args.sheets_credentials, token_path)
+                client.access_token()  # 認証が切れていれば生成前にここで止める
+            except SheetsAuthNeeded as e:
+                raise SystemExit(f"エラー: {e}")
+            sheet = SheetApiBackend(client, args.spreadsheet_id)
+            log(f"Sheets API 連携: トークン {token_path}")
         index = MaterialIndex(args.scripts_dir)
         log(f"素材フォルダ: {args.scripts_dir}（{len(index.entries)} 件の production.json）")
     else:

@@ -279,3 +279,58 @@ Tanaka の要望により、ノード固有のパスや設定をコードや Git
   ことも確認）
 - 自動探索: カレントの newsreel.toml が --config なしで拾われること、
   設定なしの従来 CLI 実行が従来どおり動くことも確認 ✓
+
+## ワーカーに sheetapi バックエンド（Sheets API 直接連携・OAuth）を追加 — 2026-10-25
+
+Tanaka の要望により、Windows ノードが Muse の橋渡し（dir バックエンド＋
+result.json 方式）なしに、シートのジョブキューを直接読み書きできるようにした
+（変更は tools/ と設定・ドキュメントのみ。runner.py 本体は無変更）。
+
+### 実装（tools/sheets_api.py、新規）
+- 標準ライブラリのみの Sheets API クライアント。OAuth 2.0 installed-app
+  （ループバック）フロー: クライアントJSON（"installed" / "web" 形式の両対応）を
+  読み、認可URLをブラウザで開き、http://localhost:<空きポート> のローカル
+  HTTPサーバーで code を受けてトークン交換。refresh_token を含むトークン
+  ファイルを保存し、以後は access_token を自動更新する。
+- スコープは spreadsheets のみ。Sheets 操作は values の get / update /
+  batchUpdate（urllib で REST）。429/5xx は最大3回まで控えめにリトライ。
+- 単体実行で認証できる: `python tools/sheets_api.py auth --credentials
+  <client.json> [--token <token.json>]`（--token 省略時は credentials と同じ
+  フォルダの newsreel_token.json）。
+- 認証情報/トークンの実ファイルはリポジトリ内に作らない。.gitignore に
+  `client_secret*.json` と `newsreel_token.json` を追加した。
+
+### 統合（tools/worker.py）
+- backend `sheetapi` を追加。`SheetApiBackend(SheetBackend)` が読み書きの
+  3プリミティブ（read_rows / read_row / batch_update）だけを Sheets API 経由に
+  差し替え、list_jobs / claim / record_* のキュー意味論は gws 版と完全同一。
+  既存の sheet / dir バックエンドの挙動は不変。素材対応付けは --scripts-dir。
+- CLI フラグ `--sheets-credentials` / `--sheets-token` を追加し、TOML でも
+  同じキー名（sheets_credentials / sheets_token、path 型）で指定できる。
+- 起動時に access_token を先に取得し、トークンが無い/失効している場合は
+  認証コマンドを案内する分かりやすいエラーで止まる（生成は始めない）。
+
+### 追加・変更ファイル
+- tools/sheets_api.py（新規）: OAuth フロー＋Sheets REST クライアント
+- tools/worker.py: sheetapi バックエンド、CLI/TOML キー、起動時認証チェック
+- .gitignore: 秘密情報2パターンを追加
+- newsreel.example.toml: キー一覧に sheets 系2キーを追加、例3（sheetapi）を追加
+- runner/README.md: ワーカーモード節のバックエンド表・オプション表に追記
+- runner/README-WINDOWS.md: 「シート直接連携（OAuth）」節を新設（Google Cloud
+  での初回手順→認証コマンド→TOML 記入例）、トラブル表に認証エラー行を追加
+- tools/README.md: バックエンド3種の説明と sheets_api.py の節を追加
+
+### 検証（この VM、実クレデンシャルなし・モック相手）
+- モックHTTPサーバー（トークンエンドポイント＋Sheets values API を模擬し、
+  Authorization を厳密に検証）相手に全25項目を確認 ✓
+  - クライアント: 期限切れトークンの refresh 経路、トークンファイルの更新保存、
+    get/update/batchUpdate の URL・エンコーディング・JSONボディ・
+    Authorization ヘッダの形式、web 形式クライアントJSON の読み込み
+  - バックエンド: 列挙（対象1件・対象外の除外）→ claim（O/P列＋再読一致）→
+    成功記録（D=動画化済み・Q/R・メンバー行Dの追随）→ 失敗記録（R列の要約）
+  - CLI 統合: worker --backend sheetapi --dry-run がモック相手に完走し
+    ジョブを列挙。TOML（backend/credentials/token/scripts_dir/dry_run）でも
+    同様に動作。トークン無しでは非ゼロ終了し認証手順を案内（生成は始まらない）
+- 既存バックエンドの回帰: dir バックエンドの --dry-run が従来どおり動作 ✓
+- 未検証: 実際のブラウザ同意フローと実シートへの読み書きは Tanaka の Windows
+  環境でしか確認できない（モックでは要求形式までを担保）。

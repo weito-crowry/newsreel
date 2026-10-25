@@ -13,8 +13,8 @@
 # 優先順位: CLI引数 > このファイル（[worker] テーブル） > 既定値
 # 指定できるキー: backend / node / mode / scripts_dir / jobs_dir /
 # outputs_dir / project / voice_dir / synth / engine_url / runner_python /
-# gws_cli / spreadsheet_id / max_jobs / once / interval / idle_exit /
-# claim_wait / only_group / dry_run
+# gws_cli / spreadsheet_id / sheets_credentials / sheets_token /
+# max_jobs / once / interval / idle_exit / claim_wait / only_group / dry_run
 
 [worker]
 
@@ -46,4 +46,23 @@
 # synth = "core"
 # scripts_dir = "/home/hatch/workspace/newsreel-scripts/scripts"
 # outputs_dir = "/home/hatch/workspace/newsreel-outputs"
+# idle_exit = true
+
+# ============================================================
+# 例3: Windows ノード（sheetapi バックエンド、Sheets API 直接連携）
+#   シートを OAuth 認証で直接読み書きする方式（Muse の橋渡し不要）。
+#   初回だけ認証コマンドを1回実行すること:
+#     python tools\sheets_api.py auth --credentials <クライアントJSON>
+#   手順の詳細は runner/README-WINDOWS.md「シート直接連携（OAuth）」。
+#   認証情報とトークンは秘密情報（.gitignore 済み。Drive 同期フォルダには
+#   置かない）。sheets_token を省略すると、sheets_credentials と同じ
+#   フォルダの newsreel_token.json が使われる。
+# ============================================================
+# backend = "sheetapi"
+# node = "weito-pc"
+# mode = "final"
+# synth = "http"
+# sheets_credentials = 'C:\path\to\client_secret.json'
+# scripts_dir = 'D:\path\to\Googleドライブ\newsreel\scripts'
+# outputs_dir = 'D:\path\to\newsreel-outputs'
 # idle_exit = true
