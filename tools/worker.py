@@ -28,8 +28,9 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
             - 成功: 代表行の D列=動画化済み、Q列に完了時刻、R列に
               「ノード名: 出力mp4の絶対パス」を記録。グループの他メンバー行は
               D列だけ 脚本済み→動画化済み に追随させる（脚本済み以外の行は触らない）。
-            - 失敗: 代表行の R列にエラーの要旨を記録し、次のジョブへ進む
-              （D列は脚本済みのまま。リトライしたい場合は O列と R列を手で消す）。
+            - 失敗: 代表行の R列にエラーの要旨を残し、claim（O/P列）を解放
+              してキューを未取得に戻し、次のジョブへ進む（D列は脚本済みの
+              まま。この起動中は再試行せず、次回起動時に再試行される）。
 
   dir   : 指定フォルダ（Drive 同期フォルダ想定）配下のジョブフォルダ
           （production.json を含むフォルダ）を列挙して処理し、各フォルダに
@@ -305,9 +306,13 @@ class SheetBackend:
         self.batch_update(updates)
 
     def record_failure(self, job: Job, node: str, summary: str) -> None:
-        self.batch_update(
-            [(f"{SHEET_NAME}!R{job.rep_row}", [[f"{node}: ERROR: {summary}"]])]
-        )
+        """失敗したら、R列にエラーの要旨（メッセージ）を残し、claim（O/P列）
+        を解放してキューを未取得の状態に戻す。この起動中は呼び出し側の
+        blocked 管理で再試行せず、次のジョブへ進む。次回起動時に再試行される。"""
+        self.batch_update([
+            (f"{SHEET_NAME}!R{job.rep_row}", [[f"{node}: ERROR: {summary}"]]),
+            (f"{SHEET_NAME}!O{job.rep_row}:P{job.rep_row}", [["", ""]]),
+        ])
 
 
 class SheetApiBackend(SheetBackend):
@@ -900,9 +905,9 @@ def main(argv: list[str]) -> int:
             except Exception as e2:
                 log(f"  失敗の記録にも失敗: {e2}")
             processed += 1
-            # 失敗したジョブはこの起動中は再試行しない（dir バックエンドでは
-            # result.json が error のジョブが再列挙され続けるため。sheet では
-            # O列が埋まるので元々再列挙されない）
+            # 失敗したジョブはこの起動中は再試行しない（sheet では claim を
+            # 解放してあるので再列挙されてしまう。dir では result.json が
+            # error のジョブが再列挙され続ける）。次回起動時に再試行される
             blocked.add(job.key)
             continue
 

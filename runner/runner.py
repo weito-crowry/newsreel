@@ -94,6 +94,31 @@ class Log:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def replace_file(tmp: Path, dest: Path, log: Log | None = None) -> None:
+    """tmp を dest へ置き換える。Windows では dest が他のアプリ（再生ソフト等）
+    に掴まれていると PermissionError (WinError 5) で弾かれるため、間隔を
+    あけて数回リトライする。最後まで失敗したら、原因と対処が分かる
+    メッセージで止める（生成物は tmp 側に残る）。"""
+    delays = [0, 2, 3, 5, 5]  # 初回即時 + リトライ4回（合計15秒ほど待つ）
+    for i, wait in enumerate(delays):
+        if wait:
+            time.sleep(wait)
+        try:
+            tmp.replace(dest)
+            if i > 0:
+                msg = f"ファイル置き換え: {dest.name}（{i}回目のリトライで成功）"
+                log.note(msg) if log else print(f"  note: {msg}")
+            return
+        except PermissionError:
+            continue
+    raise SystemExit(
+        f"エラー: {dest.name} を置き換えできませんでした"
+        "（他のアプリで開かれている可能性があります）。"
+        "再生ソフトなどで開いていたら閉じてから再実行してください。"
+        f"生成物は {tmp.name} に残っています"
+    )
+
+
 def _windows_cmdline(cmd: list[str]) -> str:
     """Windows（cmd.exe 経由）用にコマンドライン文字列を組み立てる。
 
@@ -405,7 +430,7 @@ def ensure_audio(project: Path, scene_file: Path) -> bool:
     if r.returncode != 0:
         print(r.stderr[-2000:], file=sys.stderr)
         raise SystemExit(f"エラー: {scene_file.name} への無音トラック追加に失敗しました")
-    tmp.replace(scene_file)
+    replace_file(tmp, scene_file)
     return True
 
 
@@ -501,7 +526,7 @@ def mix_sound_effects(project: Path, media: Path, production: dict,
     if r.returncode != 0 or not tmp.exists():
         print((r.stderr or "")[-2000:], file=sys.stderr)
         raise SystemExit("エラー: 効果音ミックスに失敗しました")
-    tmp.replace(media)
+    replace_file(tmp, media, log)
     desc = ", ".join(f"{fname.replace('.wav', '')}@{off:.1f}s" for off, fname, _ in events)
     return f"{len(events)}件配置（{desc}）"
 
@@ -563,7 +588,7 @@ def normalize_loudness(project: Path, media: Path, log: Log) -> str:
         if r.returncode != 0 or not tmp.exists():
             print((r.stderr or "")[-2000:], file=sys.stderr)
             raise SystemExit("エラー: ラウドネス正規化に失敗しました")
-        tmp.replace(media)
+        replace_file(tmp, media, log)
         return measure_loudness(media)
 
     gain = t["I"] - m["input_i"]
