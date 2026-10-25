@@ -2,8 +2,8 @@ import timing from "./timing.json";
 import production from "./production.json";
 
 export const FPS = 30;
-const SCENE_PAD_HEAD = 0.35; // シーン冒頭の間（秒）
-const SCENE_PAD_TAIL = 0.45; // シーン末尾の間（秒）
+const SCENE_PAD_HEAD = 0.175; // シーン冒頭の間（秒）(2026-10-26 田中指定で従来の半分。runner.py の PAD_HEAD と一致)
+const SCENE_PAD_TAIL = 0.225; // シーン末尾の間（秒）(同上、PAD_TAIL と一致)
 // 冒頭効果音が終わってから発話を始めるための追加の間（秒）。runner が timing.json に書く
 const INTRO_HOLD_SEC = Number((timing as { introHoldSec?: unknown }).introHoldSec ?? 0) || 0;
 

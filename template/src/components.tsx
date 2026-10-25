@@ -46,7 +46,7 @@ export const Background: React.FC = () => (
         background: "radial-gradient(circle, rgba(15,98,180,0.35) 0%, rgba(15,98,180,0) 65%)",
       }}
     />
-    {/* 下部の字幕帯グラデーション */}
+    {/* 下部のグラデーション（旧・字幕帯。字幕廃止後も画面下部の締めとして残置） */}
     <div
       style={{
         position: "absolute",
@@ -123,63 +123,6 @@ export const Headline: React.FC<{ text: string }> = ({ text }) => {
       <div style={{ fontSize: 96, fontWeight: 700, color: "#fff", textShadow: OUTLINE, letterSpacing: 1 }}>{text}</div>
     </div>
   );
-};
-
-export const SourceCredit: React.FC<{ text: string }> = ({ text }) => (
-  <div
-    style={{
-      position: "absolute",
-      left: 96,
-      bottom: 36,
-      fontSize: 32,
-      color: "rgba(234,242,251,0.9)",
-      textShadow: "0 2px 8px rgba(0,0,0,0.8)",
-    }}
-  >
-    {text}
-  </div>
-);
-
-/** シーン内（相対フレーム）で字幕を表示する */
-export const Subtitles: React.FC<{ scene: Scene }> = ({ scene }) => {
-  const frame = useCurrentFrame();
-  for (const u of scene.units) {
-    const rel = u.startFrame; // シーン相対
-    if (frame >= rel && frame < rel + u.durFrames) {
-      const uf = frame - rel;
-      for (const c of u.chunks) {
-        if (uf >= c.startFrame && uf < c.startFrame + c.durFrames) {
-          return (
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: 92,
-                display: "flex",
-                justifyContent: "center",
-              }}
-            >
-              <div
-                style={{
-                  maxWidth: 1520,
-                  fontSize: 72,
-                  fontWeight: 700,
-                  lineHeight: 1.4,
-                  color: "#fff",
-                  textAlign: "center",
-                  textShadow: OUTLINE,
-                }}
-              >
-                {c.text}
-              </div>
-            </div>
-          );
-        }
-      }
-    }
-  }
-  return null;
 };
 
 export const FadeIn: React.FC<{ delay?: number; children: React.ReactNode; y?: number }> = ({
@@ -586,8 +529,9 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
         </div>
       )}
       {showHeadline && def.headline && <Headline text={def.headline} />}
-      {def.credit && <SourceCredit text={def.credit} />}
-      <Subtitles scene={scene} />
+      {/* 左下の出典クレジットと字幕は表示しない（2026-10-26 田中さんの指定で廃止）。
+          出典はエンドカードの一覧で示す。production.json の credit / 字幕テキスト
+          自体はデータとして残るが、ここでは描画しない。 */}
     </AbsoluteFill>
   );
 };
