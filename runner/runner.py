@@ -101,9 +101,12 @@ def run_cmd(cmd: list[str], cwd: Path, env: dict | None = None) -> subprocess.Co
     if os.name == "nt":
         return subprocess.run(
             subprocess.list2cmdline(cmd), shell=True, cwd=str(cwd), env=full_env,
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
-    return subprocess.run(cmd, cwd=str(cwd), env=full_env, capture_output=True, text=True)
+    return subprocess.run(
+        cmd, cwd=str(cwd), env=full_env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+    )
 
 
 def tool(name: str) -> str:
