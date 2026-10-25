@@ -86,7 +86,10 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
   # ジョブ一覧だけ見る（claim も生成もしない）
   python3 tools/worker.py --backend sheet --dry-run
 
-Ctrl+C で安全に止まります（処理中ジョブはシート/result.json に記録を残します）。
+Ctrl+C は段階式です:
+  1回目 … 処理中のジョブは最後まで進め（生成→結果記録まで完了）、
+          次のジョブは開始せずに正常終了します。待機中なら速やかに終了します。
+  2回目 … ランナー子プロセス（とその子孫）ごと即座に強制終了します。
 """
 from __future__ import annotations
 
@@ -94,10 +97,12 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 try:
     import tomllib  # Python 3.11+
@@ -304,12 +309,6 @@ class SheetBackend:
             [(f"{SHEET_NAME}!R{job.rep_row}", [[f"{node}: ERROR: {summary}"]])]
         )
 
-    def record_interrupt(self, job: Job, node: str) -> None:
-        self.batch_update(
-            [(f"{SHEET_NAME}!R{job.rep_row}",
-              [[f"{node}: INTERRUPTED: 処理中に中断されました"]])]
-        )
-
 
 class SheetApiBackend(SheetBackend):
     """SheetBackend と同じキュー意味論で、読み書きだけ Sheets API 経由にする。
@@ -405,13 +404,6 @@ class DirBackend:
             "error": summary,
         })
 
-    def record_interrupt(self, job: Job, node: str, started: str) -> None:
-        self._write_result(job, {
-            "status": "interrupted", "node": node, "folder": job.key,
-            "started_at": started, "finished_at": jst_now(),
-            "error": "処理中に中断されました（Ctrl+C）",
-        })
-
 
 # ---------------------------------------------------------------- 生成実行
 
@@ -434,7 +426,16 @@ class Runner:
         if a.synth == "http":
             cmd += ["--engine-url", a.engine_url]
         log(f"  実行: {' '.join(cmd)}")
-        self.proc = subprocess.Popen(cmd)
+        # Ctrl+C がランナー側へ伝わらないよう、コンソール/端末のプロセス
+        # グループから切り離して起動する（1回目の Ctrl+C で処理中ジョブが
+        # 巻き添えで死なないように。2回目の強制終了は force_kill で行う）。
+        popen_kw: dict = {}
+        if os.name == "nt":
+            # 新しいプロセスグループでは CTRL_C_EVENT が無効化される
+            popen_kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kw["start_new_session"] = True
+        self.proc = subprocess.Popen(cmd, **popen_kw)
         try:
             rc = self.proc.wait()
         finally:
@@ -446,18 +447,100 @@ class Runner:
             raise RuntimeError(f"完成mp4が見つかりません: {out_file}")
         return out_file
 
-    def terminate(self) -> None:
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+    def force_kill(self) -> None:
+        """ランナー子プロセスを子孫ごと強制終了する（2回目の Ctrl+C 用）。
+
+        注意: シグナルハンドラ経由で呼ばれるため、Popen の poll()/wait() は
+        使わない。メインスレッドが wait() 中だと _waitpid_lock を掴んだまま
+        固まる。kill は pid に対する OS 呼び出しだけで完結させる（子が既に
+        終わっていれば例外になるが、その場合は何もしなくてよい）。
+        """
+        proc = self.proc
+        if proc is None:
+            return
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+            )
+        else:
             try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                try:
+                    os.kill(proc.pid, signal.SIGKILL)
+                except Exception:
+                    pass
 
 
 def err_summary(exc: Exception, limit: int = 180) -> str:
     s = " ".join(str(exc).split())
     return s[:limit]
+
+
+# ---------------------------------------------------------------- Ctrl+C 制御
+
+class StopController:
+    """Ctrl+C（SIGINT）の段階式ハンドリング。
+
+    1回目: 停止フラグを立てるだけ（例外は投げないので、処理中ジョブの
+    subprocess.wait() 等はそのまま継続する）。メインループは現在の
+    ジョブを生成→結果記録まで完了させ、次のジョブを開始せずに正常
+    終了する。待機中のスリープはフラグを見て速やかに抜ける。
+    2回目: 強制終了フラグを立て、ウォッチドッグスレッドがランナー子
+    プロセスのツリーごと強制終了する。メインスレッドは子が死んで
+    wait() から戻った時点でフラグを見て記録をせずに exit し、それでも
+    止まらない場合はウォッチドッグが os._exit する。
+    ハンドラ内では Popen の wait()/poll() を呼ばない（メインスレッドが
+    wait() 中に _waitpid_lock を保持していて固まるため）。
+    """
+
+    FORCE_EXIT_GRACE = 2.0  # ウォッチドッグが os._exit するまでの猶予（秒）
+
+    def __init__(self) -> None:
+        self.requested = False
+        self.force_exiting = False
+        self._presses = 0
+        self._runner: Runner | None = None
+
+    def install(self) -> None:
+        signal.signal(signal.SIGINT, self._handle)
+
+    def attach(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def _handle(self, signum, frame) -> None:
+        self._presses += 1
+        if self._presses >= 2:
+            if not self.force_exiting:
+                self.force_exiting = True
+                print("\nCtrl+C が2回押されました。強制終了します", flush=True)
+                threading.Thread(target=self._watchdog, daemon=True,
+                                 name="ctrl-c-watchdog").start()
+            return
+        self.requested = True
+        log("Ctrl+C: 現在のジョブが終わったら停止します"
+            "（もう一度 Ctrl+C を押すと強制終了します）")
+
+    def _watchdog(self) -> None:
+        if self._runner is not None:
+            try:
+                self._runner.force_kill()
+            except Exception:
+                pass
+        time.sleep(self.FORCE_EXIT_GRACE)
+        os._exit(130)
+
+
+def sleep_or_stop(seconds: float, stop: StopController) -> bool:
+    """停止フラグを見ながら待つ。フラグが立ったら True を返して早期に抜ける。"""
+    deadline = time.monotonic() + max(0.0, seconds)
+    while not stop.requested:
+        remain = deadline - time.monotonic()
+        if remain <= 0:
+            return False
+        time.sleep(min(remain, 0.2))
+    return True
 
 
 # ---------------------------------------------------------------- メイン
@@ -688,6 +771,9 @@ def main(argv: list[str]) -> int:
         log(f"設定ファイル: {info['config_path']}")
     resolve_voice_dir(args, info["explicit"])
     runner = Runner(args)
+    stop = StopController()
+    stop.install()
+    stop.attach(runner)
     node = args.node
     log(f"newsreel worker 起動: backend={args.backend} node={node} mode={args.mode} synth={args.synth}")
 
@@ -746,6 +832,9 @@ def main(argv: list[str]) -> int:
     yielded: set[str] = set()   # claim 競合したジョブ（他の候補が尽きたら再試行する）
     blocked: set[str] = set()   # 素材未解決・失敗済みのジョブ（この起動中は再試行しない）
     while True:
+        if stop.requested:
+            log("停止要求により終了します")
+            break
         if args.once and processed >= 1:
             break
         if args.max_jobs and processed >= args.max_jobs:
@@ -757,7 +846,8 @@ def main(argv: list[str]) -> int:
             log(f"ジョブ列挙に失敗: {e}")
             if args.idle_exit or args.once:
                 return 1
-            time.sleep(args.interval)
+            if sleep_or_stop(args.interval, stop):
+                break
             continue
         if not jobs:
             if yielded:
@@ -767,12 +857,12 @@ def main(argv: list[str]) -> int:
                 log("キューは空です。終了します")
                 break
             log(f"キューは空です。{args.interval:.0f}秒後に再確認します（Ctrl+Cで終了）")
-            try:
-                time.sleep(args.interval)
-            except KeyboardInterrupt:
-                log("中断されました")
+            if sleep_or_stop(args.interval, stop):
                 break
             continue
+        if stop.requested:
+            # 列挙の最中に押された場合、そのジョブは開始しない
+            break
 
         job = jobs[0]
         if job.material is None:
@@ -790,20 +880,16 @@ def main(argv: list[str]) -> int:
                     yielded.add(job.key)
                     continue
                 log(f"  claim 完了（行 {job.rep_row}、ノード {node}）")
+            if stop.force_exiting:
+                # claim 中に2回目が押された。生成は開始せず即座に終了する
+                return 130
             out_dir = args.outputs_dir / (job.material["folder"])
             out_file = runner.run(job.material["path"], job.material["prod_id"], out_dir)
-        except KeyboardInterrupt:
-            runner.terminate()
-            log("Ctrl+C: 処理中ジョブの中断を記録して終了します")
-            try:
-                if sheet is not None:
-                    sheet.record_interrupt(job, node)
-                elif dirb is not None:
-                    dirb.record_interrupt(job, node, started)
-            except Exception as e:
-                log(f"  中断の記録に失敗: {e}")
-            return 130
         except Exception as e:
+            if stop.force_exiting:
+                # 強制終了でランナーが落とされた。失敗として記録はしない
+                log("強制終了のため、記録をせずに終了します")
+                return 130
             summary = err_summary(e)
             log(f"  失敗: {summary}")
             try:
@@ -820,6 +906,10 @@ def main(argv: list[str]) -> int:
             blocked.add(job.key)
             continue
 
+        if stop.force_exiting:
+            # 生成は終わったが強制終了が優先。成功として記録はしない
+            log("強制終了のため、記録をせずに終了します")
+            return 130
         elapsed = time.perf_counter() - t0
         try:
             if sheet is not None:

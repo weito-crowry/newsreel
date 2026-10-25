@@ -334,3 +334,54 @@ result.json 方式）なしに、シートのジョブキューを直接読み�
 - 既存バックエンドの回帰: dir バックエンドの --dry-run が従来どおり動作 ✓
 - 未検証: 実際のブラウザ同意フローと実シートへの読み書きは Tanaka の Windows
   環境でしか確認できない（モックでは要求形式までを担保）。
+
+## ワーカーの Ctrl+C を段階式に変更 — 2026-10-25
+
+Tanaka の要望: 「1回目はきりの良いところ（処理中ジョブの完了）まで進めて
+止まる。2回目で強制終了」を全バックエンド共通のメインループで実現。
+
+### 実装（tools/worker.py）
+- StopController を追加。SIGINT ハンドラは例外を投げず、1回目は停止
+  フラグを立てるだけ（処理中ジョブの subprocess.wait() は継続し、生成→
+  結果記録まで完了。次のジョブは開始しない）。待機中・列挙失敗時の
+  スリープは sleep_or_stop（0.2秒粒度でフラグ確認）に置き換え、速やかに
+  終了する。claim 中に押された場合も claim→生成→記録を1ジョブとして
+  最後まで進める一貫仕様。
+- 2回目は強制終了フラグ＋ウォッチドッグスレッドで即時終了（exit 130）。
+  メインスレッドは子が死んで wait() から戻った時点でフラグを見て、
+  失敗/成功いずれの記録もせずに 130 で終了。2秒の猶予内に終わらなければ
+  ウォッチドッグが os._exit(130) する。
+- ランナー子プロセスは端末/コンソールのプロセスグループから分離して
+  起動（POSIX: start_new_session、Windows: CREATE_NEW_PROCESS_GROUP で
+  CTRL_C_EVENT を無効化）。1回目の Ctrl+C が子に届いて巻き添え死する
+  ことを防ぐ。強制終了はツリーごと（POSIX: killpg に SIGKILL、
+  Windows: taskkill /T /F）。
+- 注意点: ハンドラ内では Popen の poll()/wait() を呼ばない。Python 3.12
+  では wait() が _waitpid_lock を保持したままブロックするため、ハンドラ
+  から呼ぶとロック待ちで固まる（実測で確認）。kill は pid への OS
+  呼び出しのみで完結させる。
+- 旧仕様の置き換え: SIGINT で中断を記録する処理（KeyboardInterrupt の
+  except 節、SheetBackend/DirBackend の record_interrupt、中断
+  result.json / R列 INTERRUPTED 記録）はすべて削除。中断したジョブは
+  「失敗」でも「中断」でもなく、記録上は未完了のまま残る（sheet では
+  claim 済みなので O列を手で消せば再キューできる）。
+
+### 追加・変更ファイル
+- tools/worker.py: StopController / sleep_or_stop、Runner の分離起動と
+  force_kill、メインループの停止チェック、旧中断処理の削除、冒頭doc更新
+- tools/test_worker_signals.py（新規）: スタブランナーを使う自動テスト
+- runner/README.md / runner/README-WINDOWS.md: Ctrl+C 段階仕様に差し替え
+
+### 検証（この VM、自動テスト）
+- tools/test_worker_signals.py を3回実行し、毎回 4/4 PASS・残プロセス
+  ゼロを確認:
+  1. 処理中に SIGINT 1回 → 1件目が完了・記録され、2件目は開始されず
+     exit 0（6.2s）
+  2. 処理中に SIGINT 2回 → 0.6s で exit 130、スタブ子プロセスと
+     その子（孫 sleep）も残らない、result.json は書かれない
+  3. 待機中（キュー空・間隔60秒）に SIGINT → 0.4s で exit 0
+  4. 回帰: シグナル無しの連続処理（2件成功）/ --once（1件のみ）/
+     --dry-run（列挙のみ・記録なし）
+- 未検証: Windows 実機での Ctrl+C 伝播（CREATE_NEW_PROCESS_GROUP と
+  taskkill /T の実挙動）は Tanaka の Windows ノードでの確認が必要。
+  POSIX 側は上記テストで担保。

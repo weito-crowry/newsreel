@@ -154,7 +154,7 @@ python worker.py
 - 結果は各ジョブフォルダの `result.json`（status / node / started_at / finished_at / output の絶対パス、失敗時は error）に記録されます。完成mp4はノードのローカル（`--outputs-dir`、既定は `%USERPROFILE%\workspace\newsreel-outputs`）に出力され、アップロードはしません。
 - `result.json` の status が `success` のフォルダは処理済みとしてスキップされます。再処理したい場合はそのフォルダの `result.json` を削除してください。
 - 1件だけ処理する場合は `--once`、件数を絞る場合は `--max-jobs N`、特定の題材だけは `--only-group <フォルダ名>` を付けます。
-- Ctrl+C で安全に止まります（処理中ジョブには中断の result.json を残します）。
+- **Ctrl+C は段階式**です。1回目は処理中のジョブを最後まで進めて（生成→result.json 記録まで）から正常に止まります。待機中ならすぐ止まります。2回目を押すとランナー子プロセスごと即座に強制終了します。
 - **sheet バックエンド**（`--backend sheet`）は gws CLI がある環境（Muse の VM）専用です。Windows では dir バックエンドか、下記の sheetapi バックエンドを使ってください。
 
 #### シート直接連携（OAuth）
