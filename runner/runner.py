@@ -45,6 +45,7 @@ from pathlib import Path
 FPS = 30
 PAD_HEAD = 0.35  # layout.ts と一致させること
 PAD_TAIL = 0.45
+INTRO_GAP_AFTER = 0.30  # 冒頭効果音が終わってから発話が始まるまでの間（秒）
 RUNNER_DIR = Path(__file__).resolve().parent
 PACKAGE_DIR = RUNNER_DIR.parent
 DEFAULT_PROJECT = PACKAGE_DIR / "template"
@@ -276,8 +277,30 @@ def synthesize(
 
 # ---------------------------------------------------------------- レイアウト計算（layout.ts の鏡像）
 
-def compute_layout(production: dict, units: list[dict]) -> list[dict]:
-    """シーンごとの {id, frames, seconds, unit_offsets} を返す。unit_offsets はシーン相対秒。"""
+def intro_hold_seconds(production: dict, se_enabled: bool) -> float:
+    """冒頭効果音（intro.wav）が終わってから発話を始めるための、先頭シーンの追加の間。
+
+    効果音オフ／先頭がフックでない／intro.wav が無い場合は 0。
+    発話開始 = intro の実尺 + INTRO_GAP_AFTER になるよう、PAD_HEAD 分を差し引いて返す。
+    """
+    if not se_enabled or not production.get("scenes"):
+        return 0.0
+    first = production["scenes"][0]
+    if first.get("type") != "hook" or not first.get("narration"):
+        return 0.0
+    intro = SE_DIR / "intro.wav"
+    if not intro.exists():
+        return 0.0
+    with wave.open(str(intro), "rb") as w:
+        dur = w.getnframes() / float(w.getframerate())
+    return round(max(0.0, dur + INTRO_GAP_AFTER - PAD_HEAD), 3)
+
+
+def compute_layout(production: dict, units: list[dict], intro_hold: float = 0.0) -> list[dict]:
+    """シーンごとの {id, frames, seconds, unit_offsets} を返す。unit_offsets はシーン相対秒。
+
+    intro_hold は先頭フックシーンにだけ効く（冒頭効果音が終わってから発話を始める）。
+    """
     layout = []
     for scene in production["scenes"]:
         sid = scene["id"]
@@ -288,10 +311,11 @@ def compute_layout(production: dict, units: list[dict]) -> list[dict]:
                            "seconds": frames / FPS, "unit_offsets": [], "unit_durs": []})
             continue
         s_units = [u for u in units if u["scene"] == sid]
-        total_sec = PAD_HEAD + sum(u["dur"] for u in s_units) + PAD_TAIL
+        head = PAD_HEAD + (intro_hold if not layout and scene["type"] == "hook" else 0.0)
+        total_sec = head + sum(u["dur"] for u in s_units) + PAD_TAIL
         frames = js_round(total_sec * FPS)
         offsets, durs = [], []
-        cur = PAD_HEAD
+        cur = head
         for u in s_units:
             offsets.append(cur)
             durs.append(u["dur"])
@@ -545,8 +569,10 @@ def replace_audio(
     timing_path = project / "src" / "timing.json"
     if not timing_path.exists():
         raise SystemExit("エラー: 既存の timing.json がありません（配置の基準が必要です）")
-    old_units = json.loads(timing_path.read_text(encoding="utf-8"))["units"]
-    old_layout = compute_layout(production, old_units)
+    old_timing = json.loads(timing_path.read_text(encoding="utf-8"))
+    old_units = old_timing["units"]
+    old_layout = compute_layout(production, old_units,
+                                  intro_hold=float(old_timing.get("introHoldSec", 0.0)))
 
     # 再合成（作業ディレクトリへ。プロジェクトの timing.json は書き換えない）
     tmp_timing = work_dir / "timing-new.json"
@@ -680,8 +706,16 @@ def main(argv: list[str]) -> int:
                            backend=args.synth, engine_url=args.engine_url)
         log.step("辞書適用＋VOICEVOX合成＋実尺計測", now() - t, f"{len(units)}ユニット")
 
+    # 2.5) 冒頭ホールド（効果音が終わってから発話開始）を timing.json とレイアウトへ反映
+    hold = intro_hold_seconds(production, se_enabled=not args.no_se)
+    tj = json.loads(timing_path.read_text(encoding="utf-8"))
+    tj["introHoldSec"] = hold
+    timing_path.write_text(json.dumps(tj, ensure_ascii=False, indent=1), encoding="utf-8")
+    if hold > 0:
+        log.note(f"冒頭ホールド: 先頭シーンの発話開始を {hold:.2f}s 後ろへ（intro 終了後に発話）")
+
     # 3) レイアウト予測
-    layout = compute_layout(production, units)
+    layout = compute_layout(production, units, intro_hold=hold)
     expected_total = sum(s["seconds"] for s in layout)
     target_ids = args.scenes.split(",") if args.scenes else [s["id"] for s in layout]
     by_id = {s["id"]: s for s in layout}

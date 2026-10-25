@@ -4,6 +4,8 @@ import production from "./production.json";
 export const FPS = 30;
 const SCENE_PAD_HEAD = 0.35; // シーン冒頭の間（秒）
 const SCENE_PAD_TAIL = 0.45; // シーン末尾の間（秒）
+// 冒頭効果音が終わってから発話を始めるための追加の間（秒）。runner が timing.json に書く
+const INTRO_HOLD_SEC = Number((timing as { introHoldSec?: unknown }).introHoldSec ?? 0) || 0;
 
 /* ---------- 動画スクリプトJSON（production.json）の型 ---------- */
 
@@ -127,10 +129,11 @@ export function buildScene(compId: string): Scene {
     return { id: compId, def, startFrame: 0, durFrames: Math.round(sec * FPS), units: [] };
   }
   const rawUnits = timing.units.filter((u) => u.scene === compId);
-  const totalSec = SCENE_PAD_HEAD + rawUnits.reduce((a, u) => a + u.dur, 0) + SCENE_PAD_TAIL;
+  const headPad = SCENE_PAD_HEAD + (def.type === "hook" && compId === COMP_ORDER[0] ? INTRO_HOLD_SEC : 0);
+  const totalSec = headPad + rawUnits.reduce((a, u) => a + u.dur, 0) + SCENE_PAD_TAIL;
   const durFrames = Math.round(totalSec * FPS);
   const units: Unit[] = [];
-  let uCursor = Math.round(SCENE_PAD_HEAD * FPS);
+  let uCursor = Math.round(headPad * FPS);
   for (const ru of rawUnits) {
     const durFramesU = Math.round(ru.dur * FPS);
     const chunkTexts = splitChunks(ru.text);
