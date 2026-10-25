@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import array
 import importlib.util
+import hashlib
 import io
 import json
 import math
@@ -93,6 +94,24 @@ class Log:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _windows_cmdline(cmd: list[str]) -> str:
+    """Windows（cmd.exe 経由）用にコマンドライン文字列を組み立てる。
+
+    list2cmdline は空白を含む引数しか引用符で囲まないため、ffmpeg フィルタの
+    「|」や「&」が cmd のパイプ／連結と解釈されて壊れる（2026-10-25 の効果音
+    ミックス失敗の原因）。メタ文字を含む引数は空白がなくても引用符で囲む。
+    """
+    parts = []
+    for a in cmd:
+        if a and not any(c in a for c in ' \t"'):
+            if any(c in a for c in "|&^%<>"):
+                a = f'"{a}"'
+            parts.append(a)
+        else:
+            parts.append(subprocess.list2cmdline([a]))
+    return " ".join(parts)
+
+
 def run_cmd(cmd: list[str], cwd: Path, env: dict | None = None) -> subprocess.CompletedProcess:
     """クロスプラットフォームなコマンド実行（Windows では .cmd 解決のため shell 経由）"""
     full_env = dict(os.environ)
@@ -100,13 +119,10 @@ def run_cmd(cmd: list[str], cwd: Path, env: dict | None = None) -> subprocess.Co
         full_env.update(env)
     if os.name == "nt":
         return subprocess.run(
-            subprocess.list2cmdline(cmd), shell=True, cwd=str(cwd), env=full_env,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            _windows_cmdline(cmd), shell=True, cwd=str(cwd), env=full_env,
+            capture_output=True, text=True,
         )
-    return subprocess.run(
-        cmd, cwd=str(cwd), env=full_env, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
-    )
+    return subprocess.run(cmd, cwd=str(cwd), env=full_env, capture_output=True, text=True)
 
 
 def tool(name: str) -> str:
@@ -326,6 +342,27 @@ def compute_layout(production: dict, units: list[dict], intro_hold: float = 0.0)
         layout.append({"id": sid, "type": scene["type"], "frames": frames,
                        "seconds": frames / FPS, "unit_offsets": offsets, "unit_durs": durs})
     return layout
+
+
+def _template_hash(project: Path) -> str:
+    """テンプレ側ソース（src/*.ts(x)）の指紋。レイアウトや見た目が変わったら描き直すため。"""
+    h = hashlib.sha1()
+    src = project / "src"
+    if src.exists():
+        for p in sorted(src.iterdir()):
+            if p.is_file() and p.suffix in (".ts", ".tsx"):
+                h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def _scene_signature(tpl_hash: str, mode: str, scene_def: dict,
+                     scene_units: list[dict], hold: float) -> str:
+    """シーンキャッシュの署名。入力がすべて同じときだけ既存シーンを再利用する。"""
+    payload = {"tpl": tpl_hash, "mode": mode, "def": scene_def,
+               "units": scene_units, "hold": hold}
+    return hashlib.sha1(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 # ---------------------------------------------------------------- 描画・連結
@@ -729,15 +766,32 @@ def main(argv: list[str]) -> int:
     log.note(f"予測尺: 全編 {expected_total:.2f}s / 対象 {expected_target:.2f}s")
 
     # 4) シーン別レンダリング
+    # キャッシュ再利用は署名が一致したときだけ（脚本・音声尺・冒頭ホールド・
+    # テンプレ・モードのどれかが変わっていたら、そのシーンは描き直す）
+    sigs_path = out_dir / "scene-sigs.json"
+    try:
+        sigs = json.loads(sigs_path.read_text(encoding="utf-8"))
+    except Exception:
+        sigs = {}
+    tpl_hash = _template_hash(project)
+    first_id = production["scenes"][0]["id"]
     scene_files: list[Path] = []
     for tid in target_ids:
         scene_file = scenes_dir / f"scene-{tid}.mp4"
-        if scene_file.exists() and not args.force:
+        sig = _scene_signature(
+            tpl_hash, args.mode,
+            next(s for s in production["scenes"] if s["id"] == tid),
+            [u for u in units if u["scene"] == tid],
+            hold if tid == first_id else 0.0)
+        if scene_file.exists() and not args.force and sigs.get(tid) == sig:
             log.step(f"レンダリング {tid}", 0.0, "既存ファイルを再利用（--forceで再描画）")
         else:
             elapsed = render_scene(project, tid, scene_file, args.mode, log)
             log.step(f"レンダリング {tid}（{args.mode}）", elapsed,
                      f"{by_id[tid]['frames']}フレーム")
+            sigs[tid] = sig
+            sigs_path.write_text(json.dumps(sigs, ensure_ascii=False, indent=1),
+                                 encoding="utf-8")
         t = now()
         added = ensure_audio(project, scene_file)
         if added:
