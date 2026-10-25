@@ -447,12 +447,10 @@ def concat_scenes(project: Path, scene_files: list[Path], out_file: Path, expect
 
 SE_DIR = RUNNER_DIR / "assets" / "se"
 # (種別, ファイル名, ミックス時のゲインdB, シーン頭からのオフセット秒)
-# ニュース用途として控えめに: フックの一撃、タイトルの風切り、アクセントの小さなピン、締めの和音だけ。
+# 効果音は冒頭の intro.wav のみ（2026-10-25 Tanaka 判断: 「頭の効果音以外はいらない」。
+# それ以外の音は「無いもの」として扱い、plan が空でないのは先頭フックだけになる）。
 SE_RULES = [
     ("hook", "intro.wav", -3.0, 0.0),   # 冒頭の音は Tanaka 提供の intro.wav（2026-10-25）
-    ("title", "whoosh.wav", -9.0, 0.0),
-    ("accent", "accent.wav", -8.0, 0.05),
-    ("end", "end.wav", -7.0, 0.10),
 ]
 
 
@@ -465,10 +463,7 @@ def plan_sound_effects(production: dict, layout_subset: list[dict]) -> list[tupl
         scene = scene_by_id.get(lay["id"], {})
         stype = scene.get("type", "")
         for kind, fname, gain, off in SE_RULES:
-            if kind == "accent":
-                if scene.get("accentTelop"):
-                    events.append((cursor + off, fname, gain))
-            elif stype == kind:
+            if stype == kind:
                 events.append((cursor + off, fname, gain))
         cursor += lay["seconds"]
     return events
