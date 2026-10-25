@@ -125,10 +125,11 @@ export const Headline: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-export const FadeIn: React.FC<{ delay?: number; children: React.ReactNode; y?: number }> = ({
+export const FadeIn: React.FC<{ delay?: number; children: React.ReactNode; y?: number; style?: React.CSSProperties }> = ({
   delay = 0,
   children,
   y = 16,
+  style,
 }) => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [delay, delay + 12], [0, 1], {
@@ -139,7 +140,7 @@ export const FadeIn: React.FC<{ delay?: number; children: React.ReactNode; y?: n
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  return <div style={{ opacity, transform: `translateY(${ty}px)` }}>{children}</div>;
+  return <div style={{ opacity, transform: `translateY(${ty}px)`, ...style }}>{children}</div>;
 };
 
 /* ---------------- 図解（文言・項目は production.json の diagramData 駆動） ---------------- */
@@ -277,9 +278,9 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   const step2 = scene.units[1] ? scene.units[1].startFrame : 0;
   const step3 = scene.units[2] ? scene.units[2].startFrame : 0;
   return (
-    <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "center", gap: 30 }}>
+    <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "stretch", gap: 30 }}>
       <FadeIn>
-        <div style={{ ...boxStyle, width: 430, padding: "30px 28px", textAlign: "center" }}>
+        <div style={{ ...boxStyle, width: 430, height: "100%", boxSizing: "border-box", padding: "30px 28px", textAlign: "center" }}>
           <div style={{ fontSize: 42, fontWeight: 700, color: "#ffb3b3", whiteSpace: "pre-line", lineHeight: 1.4 }}>{d.attackerTitle ?? "攻撃役"}</div>
           <div style={{ fontSize: 38, color: INK, marginTop: 10, lineHeight: 1.5, whiteSpace: "pre-line" }}>
             {d.attackerText ?? ""}
@@ -287,13 +288,13 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
         </div>
       </FadeIn>
       {frame >= step2 && (
-        <FadeIn>
+        <FadeIn style={{ alignSelf: "center" }}>
           <div style={{ fontSize: 84, color: YELLOW, fontWeight: 700 }}>➜</div>
         </FadeIn>
       )}
       {frame >= step2 && (
         <FadeIn>
-          <div style={{ ...boxStyle, width: 400, padding: "30px 28px", textAlign: "center", borderColor: THEME }}>
+          <div style={{ ...boxStyle, width: 400, height: "100%", boxSizing: "border-box", padding: "30px 28px", textAlign: "center", borderColor: THEME }}>
             <div style={{ fontSize: 42, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.4 }}>{d.middleTitle ?? "🛡 境界・監視"}</div>
             <div style={{ fontSize: 36, color: INK, marginTop: 10, lineHeight: 1.5, whiteSpace: "pre-line" }}>
               {d.middleText ?? ""}
@@ -306,6 +307,8 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
           <div
             style={{
               width: 400,
+              height: "100%",
+              boxSizing: "border-box",
               padding: "26px 28px",
               borderRadius: 16,
               background: "rgba(255,216,61,0.13)",
@@ -316,6 +319,9 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
               lineHeight: 1.55,
               textAlign: "center",
               whiteSpace: "pre-line",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             {d.resultText}
@@ -331,9 +337,9 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
   const left = d.left ?? { title: "", mark: "✕", text: "" };
   const right = d.right ?? { title: "", mark: "○", text: "" };
   return (
-    <div style={{ position: "absolute", left: 210, top: accent ? 265 : 225, width: 1500, display: "flex", gap: 44 }}>
+    <div style={{ position: "absolute", left: 210, top: accent ? 265 : 225, width: 1500, display: "flex", alignItems: "stretch", gap: 44 }}>
       <FadeIn>
-        <div style={{ ...boxStyle, width: 700, padding: "34px 38px", opacity: 0.85 }}>
+        <div style={{ ...boxStyle, width: 700, height: "100%", boxSizing: "border-box", padding: "34px 38px", opacity: 0.85 }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
             {left.title} <span style={{ color: "#ff7b7b", fontSize: 56 }}>{left.mark ?? "✕"}</span>
           </div>
@@ -341,7 +347,7 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
         </div>
       </FadeIn>
       <FadeIn delay={14}>
-        <div style={{ ...boxStyle, width: 700, padding: "34px 38px", borderColor: THEME, background: "rgba(15,98,180,0.28)" }}>
+        <div style={{ ...boxStyle, width: 700, height: "100%", boxSizing: "border-box", padding: "34px 38px", borderColor: THEME, background: "rgba(15,98,180,0.28)" }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
             {right.title} <span style={{ color: "#7ddb8a", fontSize: 56 }}>{right.mark ?? "○"}</span>
           </div>
@@ -512,12 +518,14 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
 
 /* ---------------- 用語解説ブロック（右下） ----------------
    引っかかりそうな固有名詞の初出で、右からスライドインして右下に出る。
+   表示は5秒間だけ: 出てから5秒で右へスライドして消える（田中さんの指定）。
    複数あるときは新しいものが下に入り、既存のものは上へスライドして積み上がる。
    同時に見えるのは最新2件まで（3件目が出ると最古は上に抜けながら消える）。
    ブロックは「太字の名詞＋短い解説（長くても3行）」、高さ固定で積み上げ量を一定にする。 */
 const GLOSSARY_H = 208;
 const GLOSSARY_GAP = 14;
 const GLOSSARY_SLIDE = 14; // スライドにかけるフレーム数
+const GLOSSARY_HOLD = 150; // 表示時間: 5秒（30fps × 5）
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 const GlossaryOverlay: React.FC<{ scene: Scene }> = ({ scene }) => {
@@ -535,8 +543,12 @@ const GlossaryOverlay: React.FC<{ scene: Scene }> = ({ scene }) => {
     <div style={{ position: "absolute", right: 56, bottom: 44, width: 520, height: 0 }}>
       {items.map((g, i) => {
         if (frame < appear[i]) return null;
-        const slideIn = clamp01((frame - appear[i]) / GLOSSARY_SLIDE);
-        const x = (1 - slideIn) * 580;
+        const exitStart = appear[i] + GLOSSARY_HOLD;
+        if (frame >= exitStart + GLOSSARY_SLIDE) return null;
+        let x = (1 - clamp01((frame - appear[i]) / GLOSSARY_SLIDE)) * 580;
+        if (frame >= exitStart) {
+          x = clamp01((frame - exitStart) / GLOSSARY_SLIDE) * 580;
+        }
         let y = 0;
         let opacity = 1;
         const next = appear[i + 1];

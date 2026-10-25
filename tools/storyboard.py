@@ -64,16 +64,32 @@ def compute_starts(production: dict, timing: dict):
     return starts, frame
 
 
-def pick_frames(scene: dict, start: int, frames: int):
+def pick_frames(scene: dict, start: int, frames: int, offs=()):
     """(相対秒, ラベル) のリスト。"""
     dur = frames / FPS
     if scene["type"] == "hook":
-        return [(2.6, "フック画面")]
-    if scene["type"] == "title":
+        picks = [(2.6, "フック画面")]
+    elif scene["type"] == "title":
         return [(dur / 2, "タイトル")]
-    if scene["type"] == "end":
+    elif scene["type"] == "end":
         return [(dur / 2, "エンドカード")]
-    return [(3.0, "シーン冒頭（見出し表示中）"), (max(3.5, dur - 0.7), "図解の完成時")]
+    else:
+        picks = [(3.0, "シーン冒頭（見出し表示中）"), (max(3.5, dur - 0.7), "図解の完成時")]
+    # 用語解説がある場面は、最後のブロックが出そろった頃のフレームも撮る
+    # （ブロックは5秒で消えるため、冒頭/完成時のフレームでは写らないことがある）
+    gloss = scene.get("glossary") or []
+    if gloss and offs:
+        appears = []
+        for i, g in enumerate(gloss):
+            unit = g.get("atUnit") or 0
+            stagger = sum(1 for x in gloss[:i] if (x.get("atUnit") or 0) == unit)
+            if unit < len(offs):
+                appears.append(offs[unit] + stagger * 1.2)
+        if appears:
+            rel = max(appears) + 1.2
+            if rel < dur - 0.3 and all(abs(rel - p) > 0.8 for p, _ in picks):
+                picks.append((rel, "用語解説の表示中"))
+    return picks
 
 
 def diagram_text(scene: dict) -> list[str]:
@@ -145,9 +161,9 @@ def main() -> int:
     try:
         for scene in production["scenes"]:
             sid = scene["id"]
-            start, frames, _ = starts[sid]
+            start, frames, offs = starts[sid]
             rendered[sid] = []
-            for rel_sec, label in pick_frames(scene, start, frames):
+            for rel_sec, label in pick_frames(scene, start, frames, offs):
                 abs_frame = start + int(rel_sec * FPS)
                 png = frames_dir / f"{sid}-{int(rel_sec * 10)}.png"
                 jpg = png.with_suffix(".jpg")
