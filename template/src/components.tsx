@@ -280,7 +280,7 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
     <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "center", gap: 30 }}>
       <FadeIn>
         <div style={{ ...boxStyle, width: 430, padding: "30px 28px", textAlign: "center" }}>
-          <div style={{ fontSize: 42, fontWeight: 700, color: "#ffb3b3" }}>{d.attackerTitle ?? "攻撃役"}</div>
+          <div style={{ fontSize: 42, fontWeight: 700, color: "#ffb3b3", whiteSpace: "pre-line", lineHeight: 1.4 }}>{d.attackerTitle ?? "攻撃役"}</div>
           <div style={{ fontSize: 38, color: INK, marginTop: 10, lineHeight: 1.5, whiteSpace: "pre-line" }}>
             {d.attackerText ?? ""}
           </div>
@@ -294,7 +294,7 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
       {frame >= step2 && (
         <FadeIn>
           <div style={{ ...boxStyle, width: 400, padding: "30px 28px", textAlign: "center", borderColor: THEME }}>
-            <div style={{ fontSize: 42, fontWeight: 700, color: "#9fc6ff" }}>{d.middleTitle ?? "🛡 境界・監視"}</div>
+            <div style={{ fontSize: 42, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.4 }}>{d.middleTitle ?? "🛡 境界・監視"}</div>
             <div style={{ fontSize: 36, color: INK, marginTop: 10, lineHeight: 1.5, whiteSpace: "pre-line" }}>
               {d.middleText ?? ""}
             </div>
@@ -334,7 +334,7 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
     <div style={{ position: "absolute", left: 210, top: accent ? 265 : 225, width: 1500, display: "flex", gap: 44 }}>
       <FadeIn>
         <div style={{ ...boxStyle, width: 700, padding: "34px 38px", opacity: 0.85 }}>
-          <div style={{ fontSize: 46, fontWeight: 700, color: "#fff" }}>
+          <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
             {left.title} <span style={{ color: "#ff7b7b", fontSize: 56 }}>{left.mark ?? "✕"}</span>
           </div>
           <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{left.text ?? ""}</div>
@@ -342,7 +342,7 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
       </FadeIn>
       <FadeIn delay={14}>
         <div style={{ ...boxStyle, width: 700, padding: "34px 38px", borderColor: THEME, background: "rgba(15,98,180,0.28)" }}>
-          <div style={{ fontSize: 46, fontWeight: 700, color: "#fff" }}>
+          <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
             {right.title} <span style={{ color: "#7ddb8a", fontSize: 56 }}>{right.mark ?? "○"}</span>
           </div>
           <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{right.text ?? ""}</div>
@@ -382,7 +382,19 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
                   >
                     {i + 1}
                   </div>
-                  <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", textShadow: OUTLINE }}>{t}</div>
+                  <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", textShadow: OUTLINE, whiteSpace: "pre-line", lineHeight: 1.45 }}>
+                    {t.split("\n").map((ln, li) => (
+                      <React.Fragment key={li}>
+                        {li > 0 && <br />}
+                        {ln.startsWith("（") || ln.startsWith("(") ? (
+                          // 括弧書きだけの行は「補足行」として小さく・落とした色で見せる（D3）
+                          <span style={{ fontSize: 37, fontWeight: 600, color: INK }}>{ln}</span>
+                        ) : (
+                          ln
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
                 </div>
               </FadeIn>
             )}
@@ -472,10 +484,10 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
         <FadeIn delay={10}>
           <div style={{ fontSize: 44, color: INK, lineHeight: 1.7, marginTop: 40 }}>
             {summary.map((line, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <br />}
-                ・{line}
-              </React.Fragment>
+              <div key={i} style={{ display: "flex" }}>
+                <span style={{ flexShrink: 0 }}>・</span>
+                <span style={{ whiteSpace: "pre-line" }}>{line}</span>
+              </div>
             ))}
           </div>
         </FadeIn>
@@ -495,6 +507,73 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
         </FadeIn>
       </div>
     </AbsoluteFill>
+  );
+};
+
+/* ---------------- 用語解説ブロック（右下） ----------------
+   引っかかりそうな固有名詞の初出で、右からスライドインして右下に出る。
+   複数あるときは新しいものが下に入り、既存のものは上へスライドして積み上がる。
+   同時に見えるのは最新2件まで（3件目が出ると最古は上に抜けながら消える）。
+   ブロックは「太字の名詞＋短い解説（長くても3行）」、高さ固定で積み上げ量を一定にする。 */
+const GLOSSARY_H = 208;
+const GLOSSARY_GAP = 14;
+const GLOSSARY_SLIDE = 14; // スライドにかけるフレーム数
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+const GlossaryOverlay: React.FC<{ scene: Scene }> = ({ scene }) => {
+  const frame = useCurrentFrame();
+  const items = scene.def.glossary ?? [];
+  if (!items.length) return null;
+  const starts = scene.units.map((u) => u.startFrame);
+  // 出現フレーム: atUnit の開始。同じユニットに複数あれば 1.2 秒ずつずらす
+  const appear = items.map((g, i) => {
+    const unit = g.atUnit ?? 0;
+    const stagger = items.slice(0, i).filter((x) => (x.atUnit ?? 0) === unit).length;
+    return (starts[unit] ?? 0) + stagger * 36;
+  });
+  return (
+    <div style={{ position: "absolute", right: 56, bottom: 44, width: 520, height: 0 }}>
+      {items.map((g, i) => {
+        if (frame < appear[i]) return null;
+        const slideIn = clamp01((frame - appear[i]) / GLOSSARY_SLIDE);
+        const x = (1 - slideIn) * 580;
+        let y = 0;
+        let opacity = 1;
+        const next = appear[i + 1];
+        if (next !== undefined && frame >= next) {
+          y += clamp01((frame - next) / GLOSSARY_SLIDE) * (GLOSSARY_H + GLOSSARY_GAP);
+        }
+        const next2 = appear[i + 2];
+        if (next2 !== undefined && frame >= next2) {
+          const p = clamp01((frame - next2) / GLOSSARY_SLIDE);
+          y += p * (GLOSSARY_H + GLOSSARY_GAP);
+          opacity = 1 - p;
+        }
+        if (opacity <= 0) return null;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              right: 0,
+              bottom: y,
+              width: 520,
+              height: GLOSSARY_H,
+              transform: `translateX(${x}px)`,
+              opacity,
+              background: "rgba(6,24,44,0.88)",
+              border: "2px solid rgba(140,190,255,0.55)",
+              borderRadius: 14,
+              padding: "18px 22px",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ fontSize: 36, fontWeight: 800, color: "#fff", lineHeight: 1.3 }}>{g.term}</div>
+            <div style={{ fontSize: 29, color: INK, lineHeight: 1.5, marginTop: 6, whiteSpace: "pre-line" }}>{g.text}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 };
 
@@ -529,6 +608,7 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
         </div>
       )}
       {showHeadline && def.headline && <Headline text={def.headline} />}
+      <GlossaryOverlay scene={scene} />
       {/* 左下の出典クレジットと字幕は表示しない（2026-10-26 田中さんの指定で廃止）。
           出典はエンドカードの一覧で示す。production.json の credit / 字幕テキスト
           自体はデータとして残るが、ここでは描画しない。 */}

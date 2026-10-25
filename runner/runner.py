@@ -677,6 +677,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", type=Path, default=None, help="出力ディレクトリ（既定: <project>/out/<id>-<mode>）")
     ap.add_argument("--scenes", default=None, help="対象シーンをカンマ区切りで限定（例: S3 / S1,S3）")
     ap.add_argument("--skip-synth", action="store_true", help="合成を省略し既存の timing.json と音声を使う")
+    ap.add_argument("--timing-only", action="store_true",
+                    help="合成と timing.json の作成までで終了する（レンダリングしない。絵コンテ等の尺情報取得用）")
     ap.add_argument("--force", action="store_true", help="既存のシーンmp4があっても再レンダリングする")
     ap.add_argument("--audio-only-from", type=Path, default=None,
                     help="音声だけ差し替えモード: 既存の完成mp4のパス")
@@ -760,6 +762,14 @@ def main(argv: list[str]) -> int:
             raise SystemExit(f"エラー: 未知のシーンIDです: {tid}")
     expected_target = sum(by_id[tid]["seconds"] for tid in target_ids)
     log.note(f"予測尺: 全編 {expected_total:.2f}s / 対象 {expected_target:.2f}s")
+
+    # 3.5) timing-only: ここで終了（絵コンテ等の尺情報だけが要るとき）
+    if args.timing_only:
+        log.step("総所要時間", now() - t_all)
+        log.write(out_dir / "production-log.md", production["title"],
+                  {"モード": "timing-only", "出力": str(timing_path)})
+        print(f"\ntiming-only 完了: {timing_path}（予測尺 {expected_total:.2f}s）")
+        return 0
 
     # 4) シーン別レンダリング
     # キャッシュ再利用は署名が一致したときだけ（脚本・音声尺・冒頭ホールド・

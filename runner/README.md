@@ -43,6 +43,7 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 | `--mode dev\|final` | dev = `--scale 0.5`（960×540）で高速確認、final = フルHD（既定 dev） |
 | `--scenes S1,S3` | 対象シーンを限定（連結もそのシーンだけになる） |
 | `--skip-synth` | 辞書適用・合成を省略し、既存の `src/timing.json` と音声を再利用 |
+| `--timing-only` | 合成と `timing.json` の作成までで終了（レンダリングしない。絵コンテ等の尺情報取得用、約1分） |
 | `--force` | 既存のシーンmp4があっても再レンダリング（既定は再利用＝差分だけ速い） |
 | `--out <dir>` | 出力先（既定: `<project>/out/<動画id>-<mode>/`） |
 | `--project <dir>` | Remotion テンプレートプロジェクト（既定: `../template`） |

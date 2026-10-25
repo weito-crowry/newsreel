@@ -48,6 +48,9 @@ export interface SceneDef {
   hook?: { lines: string[]; accent?: string; sub?: string };
   titleCard?: { kicker: string; lines: string[]; sub?: string };
   endCard?: { summary: string[]; sources: { label: string; url: string }[] };
+  // 用語解説ブロック（右下）: 引っかかりそうな固有名詞に、初出のナレーション
+  // ユニット（atUnit、省略時0）でスライド表示する短い解説を付ける。
+  glossary?: { term: string; text: string; atUnit?: number }[];
   narration?: string[];
 }
 
