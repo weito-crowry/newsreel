@@ -155,8 +155,9 @@ const boxStyle: React.CSSProperties = {
 const SandboxDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
-  const step2 = scene.units[1] ? scene.units[1].startFrame : 0;
-  const step3 = scene.units[2] ? scene.units[2].startFrame : 0;
+  // 図解も最初から全部出す（2026-10-26 田中さん。順次表示はしない）
+  const step2 = 0;
+  const step3 = 0;
   // 強調テロップがあるシーンでは容器を下げ、箱の高さを同量減らして底辺（615）を変えない
   // （底辺固定なので、下端アンカーの円・補足の絶対位置は従来どおり）
   return (
@@ -229,14 +230,9 @@ const TimelineDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
   const frame = useCurrentFrame();
   const events = scene.def.diagramData?.events ?? [];
   const nodes = events.map((ev, i) => {
-    // atUnit: その文の開始で表示 / null: このシーンでは表示しない / 省略時: 同番号の文
-    const atUnit = ev.atUnit === undefined ? i : ev.atUnit;
-    const at =
-      atUnit === null
-        ? Number.POSITIVE_INFINITY
-        : scene.units[atUnit]
-          ? scene.units[atUnit].startFrame
-          : 0;
+    // 図解は最初から全部出す（2026-10-26 田中さん）。atUnit: null の
+    // 「このシーンでは表示しない」だけは脚本側の指定として残す。
+    const at = ev.atUnit === null ? Number.POSITIVE_INFINITY : 0;
     return { date: ev.date, label: ev.label, at };
   });
   return (
@@ -275,8 +271,9 @@ const TimelineDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
 const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
-  const step2 = scene.units[1] ? scene.units[1].startFrame : 0;
-  const step3 = scene.units[2] ? scene.units[2].startFrame : 0;
+  // 図解も最初から全部出す（2026-10-26 田中さん。順次表示はしない）
+  const step2 = 0;
+  const step3 = 0;
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "stretch", gap: 30 }}>
       <FadeIn>
@@ -346,7 +343,7 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
           <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{left.text ?? ""}</div>
         </div>
       </FadeIn>
-      <FadeIn delay={14}>
+      <FadeIn>
         <div style={{ ...boxStyle, width: 700, height: "100%", boxSizing: "border-box", padding: "34px 38px", borderColor: THEME, background: "rgba(15,98,180,0.28)" }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
             {right.title} <span style={{ color: "#7ddb8a", fontSize: 56 }}>{right.mark ?? "○"}</span>
@@ -361,7 +358,6 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
 const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const items = scene.def.diagramData?.points ?? [];
-  const starts = scene.units.map((u) => u.startFrame);
   const full = !!scene.def.pointsFull; // 冒頭サマリー用: 箇条書きを画面いっぱいに大きく
   // 通常も表示領域は画面幅いっぱいに取る（右側に何もない空間を作らない。
   // フォントは大きくせず、行を長くして幅を使う。2026-10-26 田中さんの指摘）
@@ -370,7 +366,10 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   return (
     <div style={{ position: "absolute", left: 100, top: full ? 170 : accent ? 280 : 250, width: full ? 1740 : 1720 }}>
       {items.map((t, i) => {
-        const at = i === 0 ? 0 : i === 1 ? starts[0] ?? 99999 : starts[1] ?? 99999;
+        // 箇条書きは全シーンとも、地図として最初から全点を表示する
+        // （2026-10-26 田中さん「最初のまとめの3つは最初から出して」→「ほかの
+        // 箇条書きも同様」）。ナレーションに合わせた順次表示はしない。
+        const at = 0;
         return (
           <div key={i} style={{ marginBottom: full ? 56 : 30, minHeight: full ? 92 : 62 }}>
             {frame >= at && (

@@ -18,10 +18,10 @@ export interface DiagramData {
   note?: string; // 円の横の補足
   step2Title?: string; // 2文目で出す大見出し
   step2Text?: string; // その補足
-  step3Badge?: string; // 3文目で出すバッジ（省略時は出さない）
+  step3Badge?: string; // バッジ（省略時は出さない）。図解は最初から全部出すので表示タイミングの指定はない
   // timeline: 年表
   events?: { date: string; label: string; atUnit?: number | null }[];
-  //   atUnit: その文（0始まり）の開始で表示。null はこのシーンでは表示しない。省略時は同番号の文
+  //   atUnit: 表示タイミングには使わない（全項目を最初から表示）。null はこのシーンでは表示しない
   // redteam: 攻撃役 → 境界・監視 → 結果 の3段
   attackerTitle?: string;
   attackerText?: string;

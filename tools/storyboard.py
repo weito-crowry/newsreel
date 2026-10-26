@@ -76,7 +76,7 @@ def pick_frames(scene: dict, start: int, frames: int, offs=()):
     elif scene["type"] == "end":
         return [(dur / 2, "エンドカード")]
     else:
-        picks = [(3.0, "シーン冒頭（見出し表示中）"), (max(3.5, dur - 0.7), "図解の完成時")]
+        picks = [(3.0, "シーン冒頭（見出し表示中）"), (max(3.5, dur - 0.7), "シーン終盤（見出し消去後）")]
     # 用語解説がある場面は、最後のブロックが出そろった頃のフレームも撮る
     # （ブロックは5秒で消えるため、冒頭/完成時のフレームでは写らないことがある）
     gloss = scene.get("glossary") or []

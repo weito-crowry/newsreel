@@ -384,15 +384,20 @@ def cmd_finalize(args) -> int:
     existing = drive_child_names(args.gws, folder_id)
     uploaded, skipped = [], []
     for p in (prod_path, script_path):
-        if p.name in existing:
-            skipped.append(p.name)
+        # ワーカーはフォルダ内の production.json / script.md という名前で素材を探すため、
+        # Drive 上の名前は必ずこの2名前にそろえる（ローカル名 production-<id>.json のまま
+        # 上げると素材が見つからずジョブがスキップされる。2026-10-26 実地で確認）
+        target_name = "production.json" if p is prod_path else "script.md"
+        if target_name in existing:
+            skipped.append(target_name)
             continue
-        r = subprocess.run([args.gws, "drive", "+upload", str(p), "--parent", folder_id],
+        r = subprocess.run([args.gws, "drive", "+upload", str(p), "--parent", folder_id,
+                            "--name", target_name],
                            capture_output=True, text=True, timeout=180)
         if r.returncode != 0:
             print(f"アップロード失敗: {p.name}: {r.stderr.strip()[:300]}", file=sys.stderr)
             return 1
-        uploaded.append(p.name)
+        uploaded.append(target_name)
 
     # --- 準備時間ログ
     state = load_state(args.state_file)

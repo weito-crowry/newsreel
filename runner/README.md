@@ -123,16 +123,17 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 
 | 値 | 内容 | `diagramData` の主なフィールド |
 |---|---|---|
-| `sandbox` | 囲い（サンドボックス）とモデル、抜け出しの段階表示 | `title` / `circle` / `note` / `step2Title` / `step2Text` / `step3Badge`（任意） |
-| `timeline` | 年表（出来事の時系列、ナレーション文ごとに段階表示） | `events: [{date, label, atUnit}]` |
+| `sandbox` | 囲い（サンドボックス）とモデル、抜け出しの図解 | `title` / `circle` / `note` / `step2Title` / `step2Text` / `step3Badge`（任意） |
+| `timeline` | 年表（出来事の時系列） | `events: [{date, label, atUnit}]` |
 | `redteam` | 攻撃役 → 境界・監視 → 修正 の3段図解 | `attackerTitle` / `attackerText` / `middleTitle` / `middleText` / `resultText` |
 | `split` | 2カラム対比（✕ / ○） | `left: {title, mark, text}` / `right: {title, mark, text}` |
-| `summary-points` | 番号付き要点リスト（ナレーションに合わせて段階表示） | `points: string[]` |
+| `summary-points` | 番号付き要点リスト | `points: string[]` |
 | （省略） | 図解なし（テロップと字幕のみ） | — |
 
-`timeline` の `atUnit` は「その文（0始まり）の開始で表示する」という指定です。
-`null` にするとその項目はシーン内では表示されません（後続シーンで触れる出来事を並べておく用途）。
-省略した場合は項目と同じ番号の文で表示されます。
+**図解は全種類とも、シーン開始から全体を表示します**（2026-10-26 田中さんの指定。
+ナレーションに合わせた段階表示・順次表示はしません）。
+`timeline` の `atUnit` は表示タイミングには使われません。`null` にした項目だけは
+シーン内では表示されません（後続シーンで触れる出来事を並べておく用途）。
 
 新しい図解が必要な場合は、テンプレートの `src/components.tsx` にコンポーネントを追加し、ここで指定できる値を増やします。
 
