@@ -59,11 +59,16 @@ runner.py 本体には手を入れず、サブプロセスとして呼び出し�
   カレントディレクトリ → パッケージ直下の順に newsreel.toml を探す。
   優先順位は CLI引数 > TOML（[worker] テーブル） > 既定値。
 
-辞書の自動発見（dir バックエンド）:
-  --voice-dir が明示されていない場合、<jobs-dir>/../voice/reading_dict.json
-  （Drive 共有レイアウトの辞書）があればそれを優先する。パッケージ voice/ の
+辞書の自動発見:
+  --voice-dir が明示されていない場合、Drive 共有レイアウトの辞書があれば
+  それを優先する。探す場所はバックエンドごとに、dir では
+  <jobs-dir>/../voice/reading_dict.json、sheet / sheetapi では
+  <scripts-dir>/../voice/reading_dict.json。パッケージ voice/ の
   適用スクリプトと Drive の辞書を組み合わせた作業用 voice dir を一時フォルダに
   自動構成して runner へ渡す（元のファイルは変更しない）。
+  ※ sheetapi でこの自動発見が効かず、クローン側の古い辞書（GitHub 配布時の
+  約40件）で合成して固有名詞が軒並みスペル読みになった事故を受けた修正
+  （2026-10-26、gigazine-0d7871905c64 の production-log で判明）。
 
 使い方:
   # Muse VM（sheet バックエンド、実ジョブを1件だけ dev で処理）
@@ -679,7 +684,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
     ap.add_argument("--project", type=Path, default=S,
                     help="Remotion テンプレートプロジェクト")
     ap.add_argument("--voice-dir", type=Path, default=S,
-                    help="読み替え辞書一式（既定: パッケージ voice/。dir では隣接する Drive 辞書を自動発見）")
+                    help="読み替え辞書一式（既定: パッケージ voice/。Drive 共有レイアウトの辞書があれば自動発見して優先）")
     ap.add_argument("--synth", choices=["core", "http"], default=S,
                     help="合成バックエンド（既定: core）")
     ap.add_argument("--engine-url", default=S,
@@ -743,21 +748,31 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, dict]:
 
 
 def resolve_voice_dir(args: argparse.Namespace, explicit: set[str]) -> None:
-    """dir バックエンド時の辞書の自動発見。
+    """辞書の自動発見（全バックエンド共通）。
 
-    --voice-dir が明示されていない場合、<jobs-dir>/../voice/reading_dict.json
-    （Drive 共有レイアウト: newsreel/voice/reading_dict.json）があればそれを
-    優先する。runner は「apply_reading_dict.py と同じフォルダの
-    reading_dict.json」を読むため、パッケージ voice/ のスクリプト群と Drive の
-    辞書を一時フォルダに組み合わせて作業用 voice dir を構成する。
-    元のファイル（パッケージ voice/ と Drive 側）は変更しない。
+    --voice-dir が明示されていない場合、Drive 共有レイアウトの
+    voice/reading_dict.json（newsreel/voice/reading_dict.json）があれば
+    それを優先する。探す場所は、dir では <jobs-dir> の親、sheet / sheetapi
+    では <scripts-dir> の親。runner は「apply_reading_dict.py と同じ
+    フォルダの reading_dict.json」を読むため、パッケージ voice/ の
+    スクリプト群と Drive の辞書を一時フォルダに組み合わせて作業用
+    voice dir を構成する。元のファイル（パッケージ voice/ と Drive 側）は
+    変更しない。
     """
-    if args.backend != "dir" or "voice_dir" in explicit:
+    if "voice_dir" in explicit:
         return
-    if args.jobs_dir is None:
-        return
-    drive_dict = args.jobs_dir.parent / "voice" / "reading_dict.json"
-    if not drive_dict.is_file():
+    parents: list[Path] = []
+    if args.backend == "dir" and args.jobs_dir is not None:
+        parents.append(args.jobs_dir.parent)
+    if args.backend in ("sheet", "sheetapi") and args.scripts_dir is not None:
+        parents.append(args.scripts_dir.parent)
+    drive_dict: Path | None = None
+    for parent in parents:
+        candidate = parent / "voice" / "reading_dict.json"
+        if candidate.is_file():
+            drive_dict = candidate
+            break
+    if drive_dict is None:
         return
     if drive_dict.resolve() == (DEFAULT_VOICE_DIR / "reading_dict.json").resolve():
         return  # 既に同じ辞書（パッケージ直下が jobs の隣にある構成など）

@@ -227,10 +227,12 @@ python ../tools/worker.py --backend sheetapi --sheets-credentials C:\newsreel\cl
 - 優先順位: **CLI引数 > TOML > 既定値**
 - `newsreel.toml` は `.gitignore` 済みです。個人のパスが GitHub に上がることはありません
 
-また **dir バックエンドでは辞書の自動発見**が働きます: `--voice-dir` が明示されて
-いない場合、`<jobs-dir>/../voice/reading_dict.json`（Drive 共有レイアウトの辞書）が
-あればそれを優先し、パッケージ voice/ の適用スクリプトと組み合わせた作業用
-voice dir を自動構成して runner に渡します（元のファイルは変更しません）。
+また **辞書の自動発見**が働きます: `--voice-dir` が明示されていない場合、
+Drive 共有レイアウトの辞書があればそれを優先します。探す場所はバックエンド
+ごとに、dir では `<jobs-dir>/../voice/reading_dict.json`、sheet / sheetapi では
+`<scripts-dir>/../voice/reading_dict.json` です。パッケージ voice/ の適用
+スクリプトと組み合わせた作業用 voice dir を自動構成して runner に渡します
+（元のファイルは変更しません）。
 
 ### 主なオプション（worker.py）
 

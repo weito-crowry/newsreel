@@ -717,3 +717,20 @@ Tanaka の要望: 「1回目はきりの良いところ（処理中ジョブの�
   layout サブコマンドを追加し、finalize では警告があれば完了処理を止める。
 - gigazine の脚本に適用: 概要の3点目をページ分けし、長すぎた見出し6件を
   1行に収まる長さへ短縮（Drive 反映済み。再生成は田中さんの判断待ち）。
+
+## 2026-10-26 worker の辞書自動発見を全バックエンドへ（バグ修正）
+
+- 症状: hiro-note（sheetapi）で生成した gigazine 動画で、Drive 辞書に
+  登録済みの固有名詞（Proof of Human、hCaptcha、reCAPTCHA v3 等）が
+  軒並みスペル読みになった。production-log の「読み替え適用」が
+  AI / 行う / Perplexity / Claude / Opus / xAI の6種だけだったことから判明。
+- 原因: 辞書の自動発見（resolve_voice_dir）が dir バックエンド専用で、
+  sheetapi ではクローン（GitHub 配布時）の古い辞書（約40件）が
+  そのまま使われていた。Drive 側の登録は一切届いていなかった。
+- 修正: sheet / sheetapi でも <scripts-dir> の親にある
+  voice/reading_dict.json を自動発見して優先するよう変更
+  （--voice-dir 明示時は従来どおりそちらが優先。Drive レイアウトでない
+  場合は従来の既定のまま）。模擬レイアウトで sheetapi が201件の
+  Drive 辞書を拾うことを確認、py_compile OK。
+- 備考: この修正がノードに届くまでは、ノード側で Drive の
+  voice/reading_dict.json をクローンの voice/ へコピーすれば同じ効果。
