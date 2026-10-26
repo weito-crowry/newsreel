@@ -37,7 +37,7 @@ export interface DiagramData {
   right?: { title: string; mark?: string; text?: string };
   // summary-points: 番号付き要点。各要素は文字列、または {text, atUnit}。
   // atUnit: その文（0始まり）の開始で表示。省略時は 0（最初から）
-  points?: (string | { text: string; atUnit?: number })[];
+  points?: (string | { text: string; atUnit?: number; pageBreakBefore?: boolean })[];
 }
 
 export interface SceneDef {

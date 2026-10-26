@@ -148,7 +148,9 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 見せ方（最初から全部出す）は、この既定とスキル側の作法で表します。
 
 - `summary-points`: 各要素は文字列、または `{"text": "...", "atUnit": n}`。
-  `atUnit` はその文（0始まり）の開始で表示する指定
+  `atUnit` はその文（0始まり）の開始で表示する指定。1画面に収まらないときは
+  項目に `{"pageBreakBefore": true, "atUnit": n}` を付けると、その文から
+  前のページと入れ替わるページ分けになる（番号は通し）
 - `sandbox` / `redteam`: `step2AtUnit` / `step3AtUnit` で2段目・3段目の表示タイミングを指定
 - `timeline`: 各項目の `atUnit` が表示タイミング。`null` にした項目はシーン内では
   表示されません（後続シーンで触れる出来事を並べておく用途）

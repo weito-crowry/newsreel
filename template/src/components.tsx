@@ -125,8 +125,19 @@ export const Headline: React.FC<{ text: string }> = ({ text }) => {
         transform: `translateX(${interpolate(s, [0, 1], [-40, 0])}px)`,
       }}
     >
-      <div style={{ width: 14, height: 118, background: THEME, position: "absolute", left: -34, top: 6 }} />
-      <div style={{ fontSize: 96, fontWeight: 700, color: "#fff", textShadow: OUTLINE, letterSpacing: 1 }}>{text}</div>
+      {/* 背景は不透過にする（2026-10-26 田中さんの指定）。図解の文字と重なった
+          ときでも見出しが読めるようにするためで、透けさせない */}
+      <div
+        style={{
+          background: "#0a2036",
+          borderRadius: 10,
+          padding: "14px 36px 18px 44px",
+          position: "relative",
+        }}
+      >
+        <div style={{ width: 14, background: THEME, position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "10px 0 0 10px" }} />
+        <div style={{ fontSize: 96, fontWeight: 700, color: "#fff", textShadow: OUTLINE, letterSpacing: 1 }}>{text}</div>
+      </div>
     </div>
   );
 };
@@ -378,13 +389,24 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   // フォントは大きくせず、行を長くして幅を使う。2026-10-26 田中さんの指摘）
   const fs = full ? 66 : 46;
   const badge = full ? 76 : 58;
+  // ページ分け（2026-10-26 田中さんの指定）: 1画面に収まらないときは脚本が
+  // pageBreakBefore でページを区切る。ページは、その先頭項目の atUnit の文から
+  // 表示され、前のページと入れ替わる（積み増しではない）。番号は通しで振る。
+  // ページ分けの指定が無ければ従来どおり1ページに全点を表示する。
+  const atOf = (p: (typeof items)[number]) => (p.atUnit != null ? (starts[p.atUnit] ?? 0) : 0);
+  const pages: { startAt: number; items: { p: (typeof items)[number]; index: number }[] }[] = [];
+  items.forEach((p, i) => {
+    if (i === 0 || p.pageBreakBefore) pages.push({ startAt: atOf(p), items: [] });
+    pages[pages.length - 1].items.push({ p, index: i });
+  });
+  const currentPage = pages.reduce((acc, pg, pi) => (frame >= pg.startAt ? pi : acc), 0);
   return (
     <div style={{ position: "absolute", left: 100, top: full ? 170 : accent ? 280 : 250, width: full ? 1740 : 1720 }}>
-      {items.map((p, i) => {
+      {pages[currentPage].items.map(({ p, index: i }) => {
         // 表示タイミングはデータ（各項目の atUnit）が決める。省略時は最初から
         // （2026-10-26 田中さん: 原則は最初から全点表示。ただしそれはデータの
         // 既定として表し、例外は脚本が atUnit で書く。プログラムは機構だけ）
-        const at = p.atUnit != null ? (starts[p.atUnit] ?? 0) : 0;
+        const at = atOf(p);
         const t = p.text;
         return (
           <div key={i} style={{ marginBottom: full ? 56 : 30, minHeight: full ? 92 : 62 }}>

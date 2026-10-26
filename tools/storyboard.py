@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from layout_check import check_production
+
 FPS = 30
 PAD_HEAD = 0.175  # runner.py / layout.ts と一致
 PAD_TAIL = 0.225
@@ -258,6 +260,8 @@ ol.narr li {{ font-size: 15px; line-height: 1.65; margin-bottom: 7px; }}
 <div class="total">総尺 約{mmss(total_sec)}（{total_sec:.0f}秒）／ 左=画面、右=画面の文字列とナレーション（番号は通し、時刻は開始位置）</div>
 {''.join(rows)}
 </body></html>"""
+    for w in check_production(args.production):
+        print(f"⚠ レイアウト: {w}", file=sys.stderr)
     out = Path(args.out_html)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc, encoding="utf-8")

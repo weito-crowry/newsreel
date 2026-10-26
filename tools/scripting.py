@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from layout_check import check_production
+
 JST = timezone(timedelta(hours=9))
 DEFAULT_SHEET_ID = "1F73m5bKIqvS9fFbOP1_hnvtPzFro5021S108Rgb4R3c"
 DEFAULT_GWS = "/opt/hatch/bin/hatch_gws_cli"
@@ -344,6 +346,14 @@ def drive_child_names(gws: str, folder: str) -> set:
     return {f["name"] for f in out.get("files", [])}
 
 
+def cmd_layout(args) -> int:
+    warns = check_production(args.production)
+    for w in warns:
+        print("⚠", w)
+    print(f"レイアウトチェック: 警告 {len(warns)} 件")
+    return 1 if warns else 0
+
+
 def cmd_finalize(args) -> int:
     articles, groups = read_sheet(args.gws, args.sheet_id)
     topics = build_topics(articles)
@@ -362,6 +372,15 @@ def cmd_finalize(args) -> int:
     if prod.get("id") != rep["id"]:
         print(f"production.json の id が代表記事と一致しません: {prod.get('id')} != {rep['id']}",
               file=sys.stderr)
+        return 1
+    # レイアウトのはみ出しは完了処理で弾く（2026-10-26 田中さんの指定）。
+    # 対応は脚本側のページ分け（pageBreakBefore）や見出しの短縮で行う
+    layout_warns = check_production(prod_path)
+    if layout_warns and not args.skip_layout_check:
+        for w in layout_warns:
+            print(f"⚠ レイアウト: {w}", file=sys.stderr)
+        print("レイアウトチェックで弾かれました。脚本を直してから再実行してください"
+              "（緊急時のみ --skip-layout-check）", file=sys.stderr)
         return 1
 
     # --- シート: 選択済みメンバーと代表行を 脚本済み に揃える（ワーカーのキュー条件）
@@ -464,7 +483,11 @@ def main() -> int:
     p = sub.add_parser("finalize", help="完了処理（シート／Drive／準備時間ログ）")
     p.add_argument("topic")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--skip-layout-check", action="store_true")
     p.set_defaults(fn=cmd_finalize)
+    p = sub.add_parser("layout", help="レイアウトのはみ出しチェック")
+    p.add_argument("production")
+    p.set_defaults(fn=cmd_layout)
     args = ap.parse_args()
     return args.fn(args)
 
