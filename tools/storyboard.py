@@ -40,17 +40,20 @@ def compute_starts(production: dict, timing: dict):
     hold = float(timing.get("introHoldSec", 0.0))
     starts = {}
     frame = 0
-    first = True
+    hold_applied = False
     for scene in production["scenes"]:
         sid = scene["id"]
-        if scene["type"] in ("title", "end"):
+        s_units = [u for u in units if u["scene"] == sid]
+        if scene["type"] in ("title", "end") and not s_units:
             sec = float(scene.get("fixedSeconds", 3 if scene["type"] == "title" else 5))
             frames = js_round(sec * FPS)
             starts[sid] = (frame, frames, [])
             frame += frames
             continue
-        s_units = [u for u in units if u["scene"] == sid]
-        head = PAD_HEAD + (hold if first and scene["type"] == "hook" else 0.0)
+        use_hold = hold if (not hold_applied and s_units) else 0.0
+        if use_hold:
+            hold_applied = True
+        head = PAD_HEAD + use_hold
         total = head + sum(u["dur"] for u in s_units) + PAD_TAIL
         frames = js_round(total * FPS)
         offs = []
@@ -60,7 +63,6 @@ def compute_starts(production: dict, timing: dict):
             cur += u["dur"]
         starts[sid] = (frame, frames, offs)
         frame += frames
-        first = False
     return starts, frame
 
 

@@ -323,40 +323,55 @@ def synthesize(
 # ---------------------------------------------------------------- レイアウト計算（layout.ts の鏡像）
 
 def intro_hold_seconds(production: dict, se_enabled: bool) -> float:
-    """冒頭効果音（intro.wav）が終わってから発話を始めるための、先頭シーンの追加の間。
+    """冒頭効果音（intro.wav = 動画の始まりの音）が終わってから最初の発話を始めるための追加の間。
 
-    効果音オフ／先頭がフックでない／intro.wav が無い場合は 0。
-    発話開始 = intro の実尺 + INTRO_GAP_AFTER になるよう、PAD_HEAD 分を差し引いて返す。
+    効果音は動画の先頭（0秒）から流れる（2026-10-26 田中さんの指定）。最初にナレーションの
+    あるシーンについて、そのシーンの絶対開始時刻を差し引き、発話開始が intro 終了 +
+    INTRO_GAP_AFTER になるよう PAD_HEAD 分も差し引いて返す。効果音オフ／intro.wav が
+    無い／ナレーションが無い場合は 0。
     """
     if not se_enabled or not production.get("scenes"):
-        return 0.0
-    first = production["scenes"][0]
-    if first.get("type") != "hook" or not first.get("narration"):
         return 0.0
     intro = SE_DIR / "intro.wav"
     if not intro.exists():
         return 0.0
+    scenes = production["scenes"]
+    first_narrated = next((i for i, s in enumerate(scenes) if s.get("narration")), None)
+    if first_narrated is None:
+        return 0.0
+    abs_start = 0.0
+    for s in scenes[:first_narrated]:
+        if s["type"] in ("title", "end"):
+            abs_start += float(s.get("fixedSeconds", 3 if s["type"] == "title" else 5))
+        else:
+            abs_start += PAD_HEAD + PAD_TAIL
     with wave.open(str(intro), "rb") as w:
         dur = w.getnframes() / float(w.getframerate())
-    return round(max(0.0, dur + INTRO_GAP_AFTER - PAD_HEAD), 3)
+    return round(max(0.0, dur + INTRO_GAP_AFTER - abs_start - PAD_HEAD), 3)
 
 
 def compute_layout(production: dict, units: list[dict], intro_hold: float = 0.0) -> list[dict]:
     """シーンごとの {id, frames, seconds, unit_offsets} を返す。unit_offsets はシーン相対秒。
 
-    intro_hold は先頭フックシーンにだけ効く（冒頭効果音が終わってから発話を始める）。
+    intro_hold は最初にナレーションのあるシーンにだけ効く（冒頭効果音が終わってから
+    発話を始める）。タイトル／エンドでも narration があれば尺はナレーションから決まる
+    （研究系でタイトルカードにサマリー1文目を載せるため。2026-10-26）。
     """
     layout = []
+    hold_applied = False
     for scene in production["scenes"]:
         sid = scene["id"]
-        if scene["type"] in ("title", "end"):
+        s_units = [u for u in units if u["scene"] == sid]
+        if scene["type"] in ("title", "end") and not s_units:
             sec = float(scene.get("fixedSeconds", 3 if scene["type"] == "title" else 5))
             frames = js_round(sec * FPS)
             layout.append({"id": sid, "type": scene["type"], "frames": frames,
                            "seconds": frames / FPS, "unit_offsets": [], "unit_durs": []})
             continue
-        s_units = [u for u in units if u["scene"] == sid]
-        head = PAD_HEAD + (intro_hold if not layout and scene["type"] == "hook" else 0.0)
+        use_hold = intro_hold if (not hold_applied and s_units) else 0.0
+        if use_hold:
+            hold_applied = True
+        head = PAD_HEAD + use_hold
         total_sec = head + sum(u["dur"] for u in s_units) + PAD_TAIL
         frames = js_round(total_sec * FPS)
         offsets, durs = [], []
@@ -471,26 +486,28 @@ def concat_scenes(project: Path, scene_files: list[Path], out_file: Path, expect
 # ---------------------------------------------------------------- 効果音
 
 SE_DIR = RUNNER_DIR / "assets" / "se"
-# (種別, ファイル名, ミックス時のゲインdB, シーン頭からのオフセット秒)
-# 効果音は冒頭の intro.wav のみ（2026-10-25 Tanaka 判断: 「頭の効果音以外はいらない」。
-# それ以外の音は「無いもの」として扱い、plan が空でないのは先頭フックだけになる）。
+# (種別, ファイル名, ミックス時のゲインdB, 動画頭からのオフセット秒)
+# 効果音は冒頭の intro.wav のみ（2026-10-25 Tanaka 判断: 「頭の効果音以外はいらない」）。
+# intro.wav は「動画の始まりの音」として動画の先頭（0秒）から流す（2026-10-26 田中さんの
+# 指定。以前はフックシーンの頭だった）。
 SE_RULES = [
-    ("hook", "intro.wav", -3.0, 0.0),   # 冒頭の音は Tanaka 提供の intro.wav（2026-10-25）
+    ("start", "intro.wav", -3.0, 0.0),   # 冒頭の音は Tanaka 提供の intro.wav（2026-10-25）
 ]
 
 
 def plan_sound_effects(production: dict, layout_subset: list[dict]) -> list[tuple[float, str, float]]:
-    """レイアウト（対象シーンの並び）から効果音の配置 (開始秒, ファイル名, ゲインdB) を決める。"""
-    scene_by_id = {s["id"]: s for s in production["scenes"]}
+    """効果音の配置 (開始秒, ファイル名, ゲインdB) を決める。
+
+    intro.wav は動画の始まりの音なので、対象レイアウトが動画の先頭シーンを含む
+    ときだけ、その頭（= 動画冒頭）に置く。
+    """
     events: list[tuple[float, str, float]] = []
-    cursor = 0.0
-    for lay in layout_subset:
-        scene = scene_by_id.get(lay["id"], {})
-        stype = scene.get("type", "")
-        for kind, fname, gain, off in SE_RULES:
-            if stype == kind:
-                events.append((cursor + off, fname, gain))
-        cursor += lay["seconds"]
+    if not layout_subset or not production.get("scenes"):
+        return events
+    if layout_subset[0]["id"] != production["scenes"][0]["id"]:
+        return events
+    for _kind, fname, gain, off in SE_RULES:
+        events.append((off, fname, gain))
     return events
 
 

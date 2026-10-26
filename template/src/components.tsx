@@ -362,23 +362,28 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   const frame = useCurrentFrame();
   const items = scene.def.diagramData?.points ?? [];
   const starts = scene.units.map((u) => u.startFrame);
+  const full = !!scene.def.pointsFull; // 冒頭サマリー用: 箇条書きを画面いっぱいに大きく
+  // 通常も表示領域は画面幅いっぱいに取る（右側に何もない空間を作らない。
+  // フォントは大きくせず、行を長くして幅を使う。2026-10-26 田中さんの指摘）
+  const fs = full ? 66 : 46;
+  const badge = full ? 76 : 58;
   return (
-    <div style={{ position: "absolute", left: 210, top: accent ? 280 : 250, width: 1500 }}>
+    <div style={{ position: "absolute", left: 100, top: full ? 170 : accent ? 280 : 250, width: full ? 1740 : 1720 }}>
       {items.map((t, i) => {
         const at = i === 0 ? 0 : i === 1 ? starts[0] ?? 99999 : starts[1] ?? 99999;
         return (
-          <div key={i} style={{ marginBottom: 30, minHeight: 62 }}>
+          <div key={i} style={{ marginBottom: full ? 56 : 30, minHeight: full ? 92 : 62 }}>
             {frame >= at && (
               <FadeIn>
                 <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
                   <div
                     style={{
-                      width: 58,
-                      height: 58,
+                      width: badge,
+                      height: badge,
                       borderRadius: "50%",
                       background: THEME,
                       color: "#fff",
-                      fontSize: 36,
+                      fontSize: full ? 46 : 36,
                       fontWeight: 700,
                       display: "flex",
                       alignItems: "center",
@@ -388,13 +393,13 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
                   >
                     {i + 1}
                   </div>
-                  <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", textShadow: OUTLINE, whiteSpace: "pre-line", lineHeight: 1.45 }}>
+                  <div style={{ fontSize: fs, fontWeight: 700, color: "#fff", textShadow: OUTLINE, whiteSpace: "pre-line", lineHeight: full ? 1.5 : 1.45 }}>
                     {t.split("\n").map((ln, li) => (
                       <React.Fragment key={li}>
                         {li > 0 && <br />}
                         {ln.startsWith("（") || ln.startsWith("(") ? (
                           // 括弧書きだけの行は「補足行」として小さく・落とした色で見せる（D3）
-                          <span style={{ fontSize: 37, fontWeight: 600, color: INK }}>{ln}</span>
+                          <span style={{ fontSize: full ? 48 : 37, fontWeight: 600, color: INK }}>{ln}</span>
                         ) : (
                           ln
                         )}
@@ -479,7 +484,32 @@ const TitleCard: React.FC<{ def: SceneDef }> = ({ def }) => {
 };
 
 const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
-  const { summary, sources } = def.endCard ?? { summary: [] as string[], sources: [] };
+  const summary = def.endCard?.summary ?? [];
+  const sources = def.endCard?.sources ?? [];
+  if (summary.length === 0) {
+    // 出典のみのエンドカード: 上側は YouTube のエンドスクリーン（次のおすすめ等）が
+    // 重なる場所として空けておき、出典は下側に置く（2026-10-26 田中さんの指定）。
+    return (
+      <AbsoluteFill>
+        <div style={{ position: "absolute", left: 210, top: 620, width: 1500 }}>
+          <FadeIn delay={10}>
+            <div style={{ fontSize: 40, fontWeight: 700, color: "#9fc6ff" }}>出典</div>
+            <div style={{ fontSize: 33, color: "rgba(234,242,251,0.92)", lineHeight: 1.75, marginTop: 16 }}>
+              {sources.map((s, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <br />}
+                  {s.label}
+                  <br />
+                  <span style={{ color: "#9fc6ff" }}>{s.url}</span>
+                  {i < sources.length - 1 && <br />}
+                </React.Fragment>
+              ))}
+            </div>
+          </FadeIn>
+        </div>
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill>
       <div style={{ position: "absolute", left: 210, top: 150, width: 1500 }}>

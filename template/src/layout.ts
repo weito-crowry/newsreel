@@ -44,6 +44,7 @@ export interface SceneDef {
   diagram?: string; // "sandbox" | "timeline" | "redteam" | "split" | "summary-points"
   diagramData?: DiagramData; // 図解の文言・項目（話題ごとの中身はここに書く）
   accentTelop?: { text: string };
+  pointsFull?: boolean; // summary-points を画面いっぱいに大きく出す（冒頭サマリー用）
   fixedSeconds?: number; // title / end 用
   hook?: { lines: string[]; accent?: string; sub?: string };
   titleCard?: { kicker: string; lines: string[]; sub?: string };
@@ -73,6 +74,11 @@ export function sceneDef(compId: string): SceneDef {
 
 /** Composition の並び順（= JSON の scenes の並び） */
 export const COMP_ORDER: string[] = PRODUCTION.scenes.map((s) => s.id);
+
+/** 最初にナレーションのあるシーン（intro ホールドはここに効く） */
+export const FIRST_NARRATED_ID: string | undefined = COMP_ORDER.find((id) =>
+  (timing.units ?? []).some((u) => u.scene === id),
+);
 
 /* ---------- レイアウト計算 ---------- */
 
@@ -127,12 +133,12 @@ export function splitChunks(text: string, maxChars = 40): string[] {
 /** 1シーン分のレイアウトを、シーン先頭を0とした相対フレームで構築する */
 export function buildScene(compId: string): Scene {
   const def = sceneDef(compId);
-  if (def.type === "title" || def.type === "end") {
+  const rawUnits = timing.units.filter((u) => u.scene === compId);
+  if ((def.type === "title" || def.type === "end") && rawUnits.length === 0) {
     const sec = def.fixedSeconds ?? (def.type === "title" ? 3 : 5);
     return { id: compId, def, startFrame: 0, durFrames: Math.round(sec * FPS), units: [] };
   }
-  const rawUnits = timing.units.filter((u) => u.scene === compId);
-  const headPad = SCENE_PAD_HEAD + (def.type === "hook" && compId === COMP_ORDER[0] ? INTRO_HOLD_SEC : 0);
+  const headPad = SCENE_PAD_HEAD + (rawUnits.length > 0 && compId === FIRST_NARRATED_ID ? INTRO_HOLD_SEC : 0);
   const totalSec = headPad + rawUnits.reduce((a, u) => a + u.dur, 0) + SCENE_PAD_TAIL;
   const durFrames = Math.round(totalSec * FPS);
   const units: Unit[] = [];
