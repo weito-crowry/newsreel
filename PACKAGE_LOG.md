@@ -689,3 +689,18 @@ Tanaka の要望: 「1回目はきりの良いところ（処理中ジョブの�
   もいいな」。SandboxDiagram / RedTeamDiagram のステップ表示、Timeline
   Diagram のノード逐次表示、SplitDiagram の遅延表示を廃止し、全図解を
   シーン開始から表示する（atUnit: null の非表示指定は残す）。
+
+## 2026-10-26 データとプログラムの分離（A+B 全項目）
+
+- 田中さんの原則: プログラムは機構だけを持ち、演出・様式は脚本データが
+  決める。プログラム変更は新表現の追加とバグ修正のときだけ。様式の標準値の
+  管理はスキル側（SCRIPTING.md + scaffold）。
+- データ駆動化した項目: 表示タイミング（points の atUnit、sandbox/redteam の
+  step2AtUnit/step3AtUnit、timeline の atUnit を再び有効化。省略時=最初から）、
+  見出し表示秒数 headlineSec、フック補足 subAtUnit、強調テロップ sec、
+  credit（書けば左下に表示）、効果音 se（省略=intro.wav / null=なし /
+  {file} で差し替え）、様式 style（brand/theme/fadeSec/glossaryHoldSec/
+  glossaryMaxVisible）、エンドカード layout。
+- 既存脚本の見た目は不変: PG は credit 除去とタイムライン atUnit 除去を
+  データ側で行い（Drive 反映済み）、scaffold は credit を出さず style の
+  標準値を書き出すよう変更。

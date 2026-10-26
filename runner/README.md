@@ -82,7 +82,19 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 | `id` | string | ○ | 動画の識別子。出力ファイル名などに使う |
 | `title` | string | ○ | 動画タイトル（制作ログ等に記録） |
 | `voice` | object | ○ | 音声合成の設定（下記） |
+| `style` | object | 任意 | 様式の指定（下記）。標準値はスキル側（SCRIPTING.md と scaffold）が管理し、scaffold が全項目を書き出す。プログラム側の既定値はフィールド不足時の安全弁 |
+| `se` | object/null | 任意 | 冒頭の効果音。省略時は `intro.wav`、`null` で効果音なし、`{"file": "x.wav"}` で `assets/se` 内の別ファイルを使う |
 | `scenes` | array | ○ | シーンの配列。**この並び順がそのまま動画の順序**になる |
+
+### `style`（様式は脚本データが決める）
+
+| フィールド | 型 | 意味 |
+|---|---|---|
+| `brand` | string/null | 右上のバッジ文字列。`null` で非表示 |
+| `theme` | string | テーマ色（例: `#0f62b4`） |
+| `fadeSec` | number | フェードにかける秒数 |
+| `glossaryHoldSec` | number | 用語解説ブロックの表示秒数 |
+| `glossaryMaxVisible` | number | 用語解説の同時表示数 |
 
 ### `voice`
 
@@ -99,9 +111,10 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 | `id` | string | ○ | シーンID。そのまま Remotion の Composition ID になる（例: `S1`, `T`, `S2` …） |
 | `type` | string | ○ | シーン種別: `hook` / `title` / `content` / `end` |
 | `shoulder` | string | 任意 | 肩テロップ（左上の常時表示ラベル） |
-| `headline` | string | 任意 | 見出しテロップ（シーン冒頭 約4.2秒 表示） |
-| `credit` | string | 任意 | 出典クレジット（左下の小表示。例: `出典: OpenAI公式ブログ`） |
-| `accentTelop` | object | 任意 | 要約テロップ（大きな強調表示）。`{"text": "9月20日"}` の形で、最初のナレーション文の間だけ右上に出る |
+| `headline` | string | 任意 | 見出しテロップ（シーン冒頭に表示） |
+| `headlineSec` | number | 任意 | 見出しテロップの表示秒数。省略時は 4.2 |
+| `credit` | string | 任意 | 出典クレジット（左下の小表示。例: `出典: OpenAI公式ブログ`）。書いたシーンでのみ表示される |
+| `accentTelop` | object | 任意 | 要約テロップ（大きな強調表示）。`{"text": "9月20日"}` の形で右上に出る。`sec` で表示秒数を指定可（省略時は最初のナレーション文の間＋20フレーム） |
 | `diagram` | string | 任意 | 図解の指定（下記） |
 | `diagramData` | object | 任意 | 図解の文言・項目（下記）。話題固有の中身はコードではなくここに書く |
 | `fixedSeconds` | number | title/end で任意 | ナレーションのないシーンの尺（秒）。既定 title=3 / end=5 |
@@ -111,10 +124,10 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 
 | type | 追加フィールド | 意味 |
 |---|---|---|
-| `hook` | `hook: {lines: string[], accent?: string, sub?: string}` | 冒頭フックの大テロップ。`lines` を行ごとに表示し、`accent` に一致する部分を黄色で強調。`sub` は2文目が始まるタイミングで出す補足文 |
+| `hook` | `hook: {lines: string[], accent?: string, sub?: string, subAtUnit?: number}` | 冒頭フックの大テロップ。`lines` を行ごとに表示し、`accent` に一致する部分を黄色で強調。`sub` は補足文で、`subAtUnit`（省略時は 1 = 2文目）で指定した文の開始で出す |
 | `title` | `titleCard: {kicker: string, lines: string[], sub?: string}` | タイトルカード。`kicker` は小さな英字ラベル（例: `AI NEWS`）、`lines` が大見出し、`sub` が下部の補足（日付・副題） |
 | `content` | `diagram` など共通フィールド | 通常の解説シーン |
-| `end` | `endCard: {summary: string[], sources: {label: string, url: string}[]}` | エンディング。`summary` は要点リスト、`sources` は出典一覧（ラベルとURL） |
+| `end` | `endCard: {summary: string[], sources: {label: string, url: string}[], layout?: "summary" \| "sources"}` | エンディング。`summary` は要点リスト、`sources` は出典一覧（ラベルとURL）。`layout` は配置の指定で、省略時は summary があれば `"summary"`（上部にまとめ＋出典）、なければ `"sources"`（出典のみ・下部配置） |
 
 ### `diagram` / `diagramData`（図解の指定と中身）
 
@@ -130,10 +143,15 @@ python3 runner.py ../examples/openai-isolation/production.json --mode dev --skip
 | `summary-points` | 番号付き要点リスト | `points: string[]` |
 | （省略） | 図解なし（テロップと字幕のみ） | — |
 
-**図解は全種類とも、シーン開始から全体を表示します**（2026-10-26 田中さんの指定。
-ナレーションに合わせた段階表示・順次表示はしません）。
-`timeline` の `atUnit` は表示タイミングには使われません。`null` にした項目だけは
-シーン内では表示されません（後続シーンで触れる出来事を並べておく用途）。
+**表示タイミングは脚本データが決めます**（プログラムは指定に従うだけ）。
+各要素はタイミング指定を持てて、省略時は「シーン開始から表示」です。現在の標準の
+見せ方（最初から全部出す）は、この既定とスキル側の作法で表します。
+
+- `summary-points`: 各要素は文字列、または `{"text": "...", "atUnit": n}`。
+  `atUnit` はその文（0始まり）の開始で表示する指定
+- `sandbox` / `redteam`: `step2AtUnit` / `step3AtUnit` で2段目・3段目の表示タイミングを指定
+- `timeline`: 各項目の `atUnit` が表示タイミング。`null` にした項目はシーン内では
+  表示されません（後続シーンで触れる出来事を並べておく用途）
 
 新しい図解が必要な場合は、テンプレートの `src/components.tsx` にコンポーネントを追加し、ここで指定できる値を増やします。
 

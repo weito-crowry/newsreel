@@ -16,12 +16,16 @@ export interface DiagramData {
   title?: string; // 囲いの見出し
   circle?: string; // 円の中のラベル
   note?: string; // 円の横の補足
-  step2Title?: string; // 2文目で出す大見出し
+  step2Title?: string; // 段階表示の2段目の大見出し
   step2Text?: string; // その補足
-  step3Badge?: string; // バッジ（省略時は出さない）。図解は最初から全部出すので表示タイミングの指定はない
+  step3Badge?: string; // バッジ（省略時は出さない）
+  // 段階表示のタイミング（sandbox / redteam 共通）: その文（0始まり）の開始で出す。
+  // 省略時は 0 = シーン開始から出す（演出はデータが決める。プログラムは機構だけ）
+  step2AtUnit?: number;
+  step3AtUnit?: number;
   // timeline: 年表
   events?: { date: string; label: string; atUnit?: number | null }[];
-  //   atUnit: 表示タイミングには使わない（全項目を最初から表示）。null はこのシーンでは表示しない
+  //   atUnit: その文（0始まり）の開始で表示。省略時は 0（最初から）。null はこのシーンでは表示しない
   // redteam: 攻撃役 → 境界・監視 → 結果 の3段
   attackerTitle?: string;
   attackerText?: string;
@@ -31,8 +35,9 @@ export interface DiagramData {
   // split: 2カラム対比
   left?: { title: string; mark?: string; text?: string };
   right?: { title: string; mark?: string; text?: string };
-  // summary-points: 番号付き要点
-  points?: string[];
+  // summary-points: 番号付き要点。各要素は文字列、または {text, atUnit}。
+  // atUnit: その文（0始まり）の開始で表示。省略時は 0（最初から）
+  points?: (string | { text: string; atUnit?: number })[];
 }
 
 export interface SceneDef {
@@ -40,19 +45,30 @@ export interface SceneDef {
   type: "hook" | "title" | "content" | "end";
   shoulder?: string;
   headline?: string;
-  credit?: string;
+  headlineSec?: number; // 見出しテロップの表示秒数。省略時は 4.2
+  credit?: string; // 出典クレジット（左下）。書けば表示され、書かなければ出ない
   diagram?: string; // "sandbox" | "timeline" | "redteam" | "split" | "summary-points"
   diagramData?: DiagramData; // 図解の文言・項目（話題ごとの中身はここに書く）
-  accentTelop?: { text: string };
+  accentTelop?: { text: string; sec?: number }; // sec: 表示秒数。省略時は1文目の長さ+20フレーム
   pointsFull?: boolean; // summary-points を画面いっぱいに大きく出す（冒頭サマリー用）
   fixedSeconds?: number; // title / end 用
-  hook?: { lines: string[]; accent?: string; sub?: string };
+  hook?: { lines: string[]; accent?: string; sub?: string; subAtUnit?: number }; // subAtUnit: 補足文を出す文の番号。省略時は 1
   titleCard?: { kicker: string; lines: string[]; sub?: string };
-  endCard?: { summary: string[]; sources: { label: string; url: string }[] };
+  endCard?: { summary: string[]; sources: { label: string; url: string }[]; layout?: "summary" | "sources" }; // layout 省略時: summary があれば "summary"、なければ "sources"
   // 用語解説ブロック（右下）: 引っかかりそうな固有名詞に、初出のナレーション
   // ユニット（atUnit、省略時0）でスライド表示する短い解説を付ける。
   glossary?: { term: string; text: string; atUnit?: number }[];
   narration?: string[];
+}
+
+/** 動画全体の様式指定（すべて省略可。省略時の既定値が現在の見た目。
+ *  演出・様式は脚本データが決め、プログラムは指定に従うだけ——という分離のための受け口） */
+export interface ProductionStyle {
+  brand?: string | null; // 右上のバッジ文字列。省略時は "AI NEWS"、null で非表示
+  theme?: string; // テーマ色。省略時は #0f62b4
+  fadeSec?: number; // フェードにかける秒数。省略時は 0.4
+  glossaryHoldSec?: number; // 用語解説ブロックの表示秒数。省略時は 5
+  glossaryMaxVisible?: number; // 用語解説の同時表示数。省略時は 2
 }
 
 export interface Production {
@@ -60,6 +76,9 @@ export interface Production {
   id: string;
   title: string;
   voice: { styleId: number; speed: number; tailSilence: number };
+  style?: ProductionStyle;
+  // 冒頭の効果音。省略時は intro.wav、null で効果音なし、{file} で assets/se 内の別ファイル
+  se?: { file?: string } | null;
   scenes: SceneDef[];
 }
 

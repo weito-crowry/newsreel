@@ -6,12 +6,14 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { Scene, SceneDef } from "./layout";
+import { PRODUCTION, Scene, SceneDef } from "./layout";
 
 // Windows でも崩れないよう游ゴシック/メイリオをフォールバックに含める
 export const FONT =
   "'Noto Sans CJK JP', 'Noto Sans JP', 'Yu Gothic UI', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif";
-export const THEME = "#0f62b4"; // テーマ色: 青
+// 様式は脚本データ（production.style）が決める。プログラム側は既定値を持つだけ
+export const STYLE = PRODUCTION.style ?? {};
+export const THEME = STYLE.theme ?? "#0f62b4"; // テーマ色: 青
 export const YELLOW = "#ffd83d";
 export const INK = "#eaf2fb";
 
@@ -88,21 +90,25 @@ export const Shoulder: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-export const BrandBadge: React.FC = () => (
-  <div
-    style={{
-      position: "absolute",
-      top: 54,
-      right: 96,
-      color: "rgba(234,242,251,0.75)",
-      fontSize: 34,
-      fontWeight: 700,
-      letterSpacing: 6,
-    }}
-  >
-    AI NEWS
-  </div>
-);
+export const BrandBadge: React.FC = () => {
+  const brand = STYLE.brand === undefined ? "AI NEWS" : STYLE.brand;
+  if (!brand) return null;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 54,
+        right: 96,
+        color: "rgba(234,242,251,0.75)",
+        fontSize: 34,
+        fontWeight: 700,
+        letterSpacing: 6,
+      }}
+    >
+      {brand}
+    </div>
+  );
+};
 
 export const Headline: React.FC<{ text: string }> = ({ text }) => {
   const frame = useCurrentFrame();
@@ -132,11 +138,12 @@ export const FadeIn: React.FC<{ delay?: number; children: React.ReactNode; y?: n
   style,
 }) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [delay, delay + 12], [0, 1], {
+  const fadeFrames = Math.max(1, Math.round((STYLE.fadeSec ?? 0.4) * 30));
+  const opacity = interpolate(frame, [delay, delay + fadeFrames], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
-  const ty = interpolate(frame, [delay, delay + 12], [y, 0], {
+  const ty = interpolate(frame, [delay, delay + fadeFrames], [y, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
@@ -155,9 +162,9 @@ const boxStyle: React.CSSProperties = {
 const SandboxDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
-  // 図解も最初から全部出す（2026-10-26 田中さん。順次表示はしない）
-  const step2 = 0;
-  const step3 = 0;
+  // 表示タイミングはデータ（step2AtUnit/step3AtUnit）が決める。省略時は最初から
+  const step2 = d.step2AtUnit != null ? (scene.units[d.step2AtUnit]?.startFrame ?? 0) : 0;
+  const step3 = d.step3AtUnit != null ? (scene.units[d.step3AtUnit]?.startFrame ?? 0) : 0;
   // 強調テロップがあるシーンでは容器を下げ、箱の高さを同量減らして底辺（615）を変えない
   // （底辺固定なので、下端アンカーの円・補足の絶対位置は従来どおり）
   return (
@@ -229,10 +236,15 @@ const SandboxDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
 const TimelineDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
   const frame = useCurrentFrame();
   const events = scene.def.diagramData?.events ?? [];
-  const nodes = events.map((ev, i) => {
-    // 図解は最初から全部出す（2026-10-26 田中さん）。atUnit: null の
-    // 「このシーンでは表示しない」だけは脚本側の指定として残す。
-    const at = ev.atUnit === null ? Number.POSITIVE_INFINITY : 0;
+  const nodes = events.map((ev) => {
+    // 表示タイミングはデータ（atUnit）が決める。省略時は最初から、
+    // null は「このシーンでは表示しない」
+    const at =
+      ev.atUnit === null
+        ? Number.POSITIVE_INFINITY
+        : ev.atUnit != null
+          ? (scene.units[ev.atUnit]?.startFrame ?? 0)
+          : 0;
     return { date: ev.date, label: ev.label, at };
   });
   return (
@@ -271,9 +283,9 @@ const TimelineDiagram: React.FC<{ scene: Scene }> = ({ scene }) => {
 const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
   const d = scene.def.diagramData ?? {};
-  // 図解も最初から全部出す（2026-10-26 田中さん。順次表示はしない）
-  const step2 = 0;
-  const step3 = 0;
+  // 表示タイミングはデータ（step2AtUnit/step3AtUnit）が決める。省略時は最初から
+  const step2 = d.step2AtUnit != null ? (scene.units[d.step2AtUnit]?.startFrame ?? 0) : 0;
+  const step3 = d.step3AtUnit != null ? (scene.units[d.step3AtUnit]?.startFrame ?? 0) : 0;
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "stretch", gap: 30 }}>
       <FadeIn>
@@ -357,7 +369,10 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
 
 const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const frame = useCurrentFrame();
-  const items = scene.def.diagramData?.points ?? [];
+  const items = (scene.def.diagramData?.points ?? []).map((p) =>
+    typeof p === "string" ? { text: p } : p,
+  );
+  const starts = scene.units.map((u) => u.startFrame);
   const full = !!scene.def.pointsFull; // 冒頭サマリー用: 箇条書きを画面いっぱいに大きく
   // 通常も表示領域は画面幅いっぱいに取る（右側に何もない空間を作らない。
   // フォントは大きくせず、行を長くして幅を使う。2026-10-26 田中さんの指摘）
@@ -365,11 +380,12 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   const badge = full ? 76 : 58;
   return (
     <div style={{ position: "absolute", left: 100, top: full ? 170 : accent ? 280 : 250, width: full ? 1740 : 1720 }}>
-      {items.map((t, i) => {
-        // 箇条書きは全シーンとも、地図として最初から全点を表示する
-        // （2026-10-26 田中さん「最初のまとめの3つは最初から出して」→「ほかの
-        // 箇条書きも同様」）。ナレーションに合わせた順次表示はしない。
-        const at = 0;
+      {items.map((p, i) => {
+        // 表示タイミングはデータ（各項目の atUnit）が決める。省略時は最初から
+        // （2026-10-26 田中さん: 原則は最初から全点表示。ただしそれはデータの
+        // 既定として表し、例外は脚本が atUnit で書く。プログラムは機構だけ）
+        const at = p.atUnit != null ? (starts[p.atUnit] ?? 0) : 0;
+        const t = p.text;
         return (
           <div key={i} style={{ marginBottom: full ? 56 : 30, minHeight: full ? 92 : 62 }}>
             {frame >= at && (
@@ -419,7 +435,9 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
 
 const HookScene: React.FC<{ scene: Scene }> = ({ scene }) => {
   const frame = useCurrentFrame();
-  const showSecond = scene.units[1] ? frame >= scene.units[1].startFrame : false;
+  // 補足文の表示タイミングはデータ（subAtUnit、省略時は1文目）が決める
+  const subAt = scene.units[scene.def.hook?.subAtUnit ?? 1]?.startFrame ?? 0;
+  const showSecond = frame >= subAt;
   const { lines, accent, sub } = scene.def.hook ?? { lines: [] as string[] };
   return (
     <AbsoluteFill>
@@ -485,7 +503,9 @@ const TitleCard: React.FC<{ def: SceneDef }> = ({ def }) => {
 const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
   const summary = def.endCard?.summary ?? [];
   const sources = def.endCard?.sources ?? [];
-  if (summary.length === 0) {
+  // 配置はデータ（endCard.layout）が決める。省略時は summary の有無から決まる
+  const layout = def.endCard?.layout ?? (summary.length === 0 ? "sources" : "summary");
+  if (layout === "sources") {
     // 出典のみのエンドカード: 上側は YouTube のエンドスクリーン（次のおすすめ等）が
     // 重なる場所として空けておき、出典は下側に置く（2026-10-26 田中さんの指定）。
     return (
@@ -554,7 +574,9 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
 const GLOSSARY_H = 208;
 const GLOSSARY_GAP = 14;
 const GLOSSARY_SLIDE = 14; // スライドにかけるフレーム数
-const GLOSSARY_HOLD = 150; // 表示時間: 5秒（30fps × 5）
+// 表示時間と同時表示数は脚本データ（production.style）が決める。既定は5秒・2件
+const GLOSSARY_HOLD = Math.round((STYLE.glossaryHoldSec ?? 5) * 30);
+const GLOSSARY_MAX = Math.max(1, STYLE.glossaryMaxVisible ?? 2);
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 const GlossaryOverlay: React.FC<{ scene: Scene }> = ({ scene }) => {
@@ -580,15 +602,15 @@ const GlossaryOverlay: React.FC<{ scene: Scene }> = ({ scene }) => {
         }
         let y = 0;
         let opacity = 1;
-        const next = appear[i + 1];
-        if (next !== undefined && frame >= next) {
-          y += clamp01((frame - next) / GLOSSARY_SLIDE) * (GLOSSARY_H + GLOSSARY_GAP);
-        }
-        const next2 = appear[i + 2];
-        if (next2 !== undefined && frame >= next2) {
-          const p = clamp01((frame - next2) / GLOSSARY_SLIDE);
-          y += p * (GLOSSARY_H + GLOSSARY_GAP);
-          opacity = 1 - p;
+        // 自分より後に現れたブロックの数だけ上に積み上がる。同時表示数（GLOSSARY_MAX）を
+        // 超えたら、いちばん古いものが上に抜けながら消える
+        for (let k = 1; k <= GLOSSARY_MAX; k++) {
+          const nxt = appear[i + k];
+          if (nxt !== undefined && frame >= nxt) {
+            const p = clamp01((frame - nxt) / GLOSSARY_SLIDE);
+            y += p * (GLOSSARY_H + GLOSSARY_GAP);
+            if (k === GLOSSARY_MAX) opacity = 1 - p;
+          }
         }
         if (opacity <= 0) return null;
         return (
@@ -625,7 +647,11 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
   if (def.type === "title") return <TitleCard def={def} />;
   if (def.type === "end") return <EndCard def={def} />;
   const frame = useCurrentFrame();
-  const showHeadline = def.headline && frame < 4.2 * 30;
+  // 見出しの表示秒数はデータ（headlineSec、省略時は4.2）が決める
+  const showHeadline = def.headline && frame < (def.headlineSec ?? 4.2) * 30;
+  // 強調テロップの表示時間もデータ（accentTelop.sec、省略時は1文目+20フレーム）
+  const accentUntil =
+    def.accentTelop?.sec != null ? def.accentTelop.sec * 30 : (scene.units[0]?.durFrames ?? 0) + 20;
   return (
     <AbsoluteFill>
       {def.shoulder && <Shoulder text={def.shoulder} />}
@@ -635,7 +661,7 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
       {def.diagram === "redteam" && <RedTeamDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "split" && <SplitDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "summary-points" && <SummaryDiagram scene={scene} accent={!!def.accentTelop} />}
-      {def.accentTelop && frame < (scene.units[0]?.durFrames ?? 0) + 20 && (
+      {def.accentTelop && frame < accentUntil && (
         // 強調テロップの帯域は肩テロップ直下（top 140〜約250）に固定する。
         // 旧配置（top 190 / 110px）は図解の先頭要素と重なったため、この帯に移し、
         // 図解側も accent 時に開始位置を下げてある（各 Diagram の accent prop 参照）。
@@ -650,9 +676,23 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
       )}
       {showHeadline && def.headline && <Headline text={def.headline} />}
       <GlossaryOverlay scene={scene} />
-      {/* 左下の出典クレジットと字幕は表示しない（2026-10-26 田中さんの指定で廃止）。
-          出典はエンドカードの一覧で示す。production.json の credit / 字幕テキスト
-          自体はデータとして残るが、ここでは描画しない。 */}
+      {/* 出典クレジットは、脚本データに credit が書かれていれば左下に表示する。
+          出すかどうかはデータが決める（プログラムがデータの有無を無視して
+          一律に出さない、という決め方はしない。2026-10-26 データ/プログラム
+          分離の原則による）。字幕はそもそもデータに描画指定がないため出ない。 */}
+      {def.credit && (
+        <div
+          style={{
+            position: "absolute",
+            left: 96,
+            bottom: 36,
+            fontSize: 26,
+            color: "rgba(234,242,251,0.55)",
+          }}
+        >
+          {def.credit}
+        </div>
+      )}
     </AbsoluteFill>
   );
 };

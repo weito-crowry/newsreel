@@ -322,17 +322,34 @@ def synthesize(
 
 # ---------------------------------------------------------------- レイアウト計算（layout.ts の鏡像）
 
+def se_choice(production: dict) -> tuple[bool, str]:
+    """冒頭効果音の選択は脚本データ（production.se）が決める。
+
+    省略時: intro.wav（動画の始まりの音） / null: 効果音なし /
+    {"file": "x.wav"}: assets/se 内のそのファイルを使う。
+    """
+    if "se" not in production:
+        return True, "intro.wav"
+    se = production.get("se")
+    if se is None:
+        return False, "intro.wav"
+    if isinstance(se, dict):
+        return True, str(se.get("file") or "intro.wav")
+    return True, "intro.wav"
+
+
 def intro_hold_seconds(production: dict, se_enabled: bool) -> float:
-    """冒頭効果音（intro.wav = 動画の始まりの音）が終わってから最初の発話を始めるための追加の間。
+    """冒頭効果音（動画の始まりの音）が終わってから最初の発話を始めるための追加の間。
 
     効果音は動画の先頭（0秒）から流れる（2026-10-26 田中さんの指定）。最初にナレーションの
-    あるシーンについて、そのシーンの絶対開始時刻を差し引き、発話開始が intro 終了 +
-    INTRO_GAP_AFTER になるよう PAD_HEAD 分も差し引いて返す。効果音オフ／intro.wav が
+    あるシーンについて、そのシーンの絶対開始時刻を差し引き、発話開始が効果音終了 +
+    INTRO_GAP_AFTER になるよう PAD_HEAD 分も差し引いて返す。効果音オフ／ファイルが
     無い／ナレーションが無い場合は 0。
     """
-    if not se_enabled or not production.get("scenes"):
+    data_enabled, se_file = se_choice(production)
+    if not se_enabled or not data_enabled or not production.get("scenes"):
         return 0.0
-    intro = SE_DIR / "intro.wav"
+    intro = SE_DIR / se_file
     if not intro.exists():
         return 0.0
     scenes = production["scenes"]
@@ -498,16 +515,20 @@ SE_RULES = [
 def plan_sound_effects(production: dict, layout_subset: list[dict]) -> list[tuple[float, str, float]]:
     """効果音の配置 (開始秒, ファイル名, ゲインdB) を決める。
 
-    intro.wav は動画の始まりの音なので、対象レイアウトが動画の先頭シーンを含む
-    ときだけ、その頭（= 動画冒頭）に置く。
+    効果音は動画の始まりの音なので、対象レイアウトが動画の先頭シーンを含む
+    ときだけ、その頭（= 動画冒頭）に置く。使うファイルは脚本データ
+    （production.se）が決める（se_choice 参照）。
     """
     events: list[tuple[float, str, float]] = []
     if not layout_subset or not production.get("scenes"):
         return events
     if layout_subset[0]["id"] != production["scenes"][0]["id"]:
         return events
-    for _kind, fname, gain, off in SE_RULES:
-        events.append((off, fname, gain))
+    enabled, se_file = se_choice(production)
+    if not enabled:
+        return events
+    for _kind, _fname, gain, off in SE_RULES:
+        events.append((off, se_file, gain))
     return events
 
 

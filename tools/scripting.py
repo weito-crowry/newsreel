@@ -237,6 +237,16 @@ def cmd_scaffold(args) -> int:
         "id": rep["id"],
         "title": rep["title"],  # 仮タイトル。脚本作成時に動画タイトルへ付け直す
         "voice": dict(VOICE_DEFAULTS),
+        # 様式の標準値はスキル側（この scaffold と SCRIPTING.md）が管理する。
+        # プログラム側の既定値は、フィールド不足時の安全弁にすぎない
+        # （2026-10-26 田中さん: 既定値の管理はプログラムではなくスキル側）
+        "style": {
+            "brand": "AI NEWS",
+            "theme": "#0f62b4",
+            "fadeSec": 0.4,
+            "glossaryHoldSec": 5,
+            "glossaryMaxVisible": 2,
+        },
         "scenes": [
             {"id": "S1", "type": "hook", "shoulder": "",
              "hook": {"accent": "", "lines": ["", ""], "sub": ""}, "narration": []},
@@ -244,7 +254,7 @@ def cmd_scaffold(args) -> int:
              "titleCard": {"kicker": "AI NEWS", "lines": [""], "sub": ""}},
             {"id": "S2", "type": "content", "shoulder": "", "headline": "",
              "diagram": "summary-points", "diagramData": {"points": []},
-             "credit": f"出典: {rep['source']}", "narration": []},
+             "narration": []},
             {"id": "E", "type": "end", "fixedSeconds": 5,
              "endCard": {"summary": [], "sources": sources}},
         ],
