@@ -123,6 +123,226 @@ def diagram_text(scene: dict) -> list[str]:
         for k in ("title", "circle", "note", "step2Title", "step2Text", "step3Badge"):
             if d.get(k):
                 out.append(f"{k}: {d[k]}".replace("\n", " / "))
+    elif kind == "hero-number":
+        if d.get("label"):
+            out.append(f"label: {d['label']}")
+        if d.get("value"):
+            vn = f"（{d['valueNote']}）" if d.get("valueNote") else ""
+            out.append(f"主数字: {d['value']}{vn}")
+        for s in d.get("sub") or []:
+            out.append(f"副数字: {s.get('value', '')} {s.get('label', '')}".replace("\n", " / "))
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "numbers-table":
+        if d.get("columns"):
+            out.append("列: " + " / ".join(d["columns"]))
+        for r in d.get("rows") or []:
+            mark = " ★強調" if r.get("highlight") else ""
+            out.append(f"{r.get('label', '')}: " + " / ".join(r.get("values") or []) + mark)
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "steps":
+        for i, s in enumerate(d.get("steps") or [], 1):
+            out.append(f"{i}. {s.get('title', '')}: {(s.get('text') or '').replace(chr(10), ' / ')}")
+    elif kind == "items":
+        for it in d.get("items") or []:
+            out.append(f"{it.get('title', '')}: {(it.get('text') or '').replace(chr(10), ' / ')}")
+    elif kind == "quote":
+        if d.get("context"):
+            out.append("context: " + d["context"].replace("\n", " / "))
+        if d.get("quote"):
+            out.append("引用: " + d["quote"].replace("\n", " / "))
+        sp = " ".join(x for x in (d.get("speaker"), d.get("role")) if x)
+        if sp:
+            out.append(f"発言者: {sp}")
+    elif kind == "benchmark-table":
+        cols = d.get("columns") or []
+        if cols:
+            out.append("列: " + " / ".join(cols))
+        brows = d.get("benchRows") or []
+        for r in brows:
+            mark = " ★発表モデル" if r.get("highlight") else ""
+            out.append(f"{r.get('model', '')}: " + " / ".join(r.get("values") or []) + mark)
+        best = d.get("best") or []
+        bests = []
+        for ci, ri in enumerate(best):
+            if ri is not None and 0 <= ri < len(brows):
+                cname = cols[ci] if ci < len(cols) else f"列{ci + 1}"
+                bests.append(f"{cname}={brows[ri].get('model', '')}")
+        if bests:
+            out.append("最良: " + "、".join(bests))
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "benchmark-chart":
+        head = f"指標: {d.get('benchmark', '')}"
+        if d.get("unit"):
+            head += f"（単位: {d['unit']}）"
+        out.append(head)
+        for b in d.get("bars") or []:
+            mark = " ★強調" if b.get("highlight") else ""
+            out.append(f"{b.get('model', '')}: {b.get('value', '')}{d.get('unit', '')}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "code-block":
+        if d.get("caption"):
+            out.append("caption: " + d["caption"].replace("\n", " / "))
+        if d.get("above"):
+            out.append("above: " + d["above"].replace("\n", " / "))
+        for ln in d.get("lines") or []:
+            out.append(f"code: {ln}")
+        if d.get("below"):
+            out.append("below: " + d["below"].replace("\n", " / "))
+    elif kind == "delta":
+        if d.get("label"):
+            out.append(f"label: {d['label']}")
+        out.append(f"前: {d.get('beforeLabel', '')} {d.get('before', '')}".strip())
+        out.append(f"後: {d.get('afterLabel', '')} {d.get('after', '')}".strip())
+        if d.get("change"):
+            out.append(f"変化: {d['change']}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "stat-grid":
+        for s in d.get("stats") or []:
+            out.append(f"{s.get('value', '')}（{s.get('label', '')}）".replace("\n", " / "))
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "spec-list":
+        if d.get("subject"):
+            out.append(f"対象: {d['subject']}")
+        for r in d.get("specs") or []:
+            out.append(f"{r.get('item', '')}: {r.get('value', '')}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "changelog":
+        kind_labels = {"added": "追加", "changed": "変更", "fixed": "修正", "removed": "削除"}
+        for c in d.get("changes") or []:
+            badge = c.get("badge") or kind_labels.get(c.get("kind", ""), c.get("kind", ""))
+            out.append(f"[{badge}] {(c.get('text') or '').replace(chr(10), ' / ')}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "ranking-list":
+        if d.get("rankTitle"):
+            out.append(f"見出し: {d['rankTitle']}")
+        for i, e in enumerate(d.get("entries") or [], 1):
+            sc = f": {e['score']}" if e.get("score") else ""
+            mark = " ★強調" if e.get("highlight") else ""
+            out.append(f"{i}位 {e.get('name', '')}{sc}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "trend-chart":
+        if d.get("label"):
+            out.append(f"グラフ: {d['label']}" + (f"（{d['unit']}）" if d.get("unit") else ""))
+        for s in d.get("series") or []:
+            pts = " → ".join(f"{pt.get('label', '')} {pt.get('value', '')}" for pt in s.get("points") or [])
+            out.append(f"{s.get('name', '')}: {pts}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "post-card":
+        who = d.get("name", "") + (f"（{d['handle']}）" if d.get("handle") else "")
+        out.append(f"投稿者: {who}")
+        if d.get("text"):
+            out.append("投稿文: " + d["text"].replace("\n", " / "))
+        meta = " ".join(x for x in (f"いいね {d['likes']}" if d.get("likes") else "", f"リポスト {d['reposts']}" if d.get("reposts") else "", d.get("date", "")) if x)
+        if meta:
+            out.append(meta)
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "relation-map":
+        mode = d.get("mode") or "hub"
+        head = (d.get("center") or d.get("root") or {})
+        out.append(f"中心: {head.get('title', '')}" + (f"（{head['text']}）" if head.get("text") else ""))
+        for nd in d.get("nodes") or []:
+            link = f"［{nd['link']}］" if nd.get("link") else ""
+            out.append(f"{nd.get('title', '')}{link}: {(nd.get('text') or '').replace(chr(10), ' / ')}")
+        out.append(f"形式: {'階層ツリー' if mode == 'tree' else '中心放射'}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "scatter":
+        out.append(f"軸: x={d.get('xLabel', '')} / y={d.get('yLabel', '')}")
+        for pt in d.get("chartPoints") or []:
+            mark = " ★強調" if pt.get("highlight") else ""
+            out.append(f"{pt.get('name', '')}: x={pt.get('x', '')}, y={pt.get('y', '')}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "delta-multi":
+        out.append(f"前後: {d.get('beforeLabel', '')} → {d.get('afterLabel', '')}")
+        for it in d.get("slopeItems") or []:
+            out.append(f"{it.get('label', '')}: {it.get('before', '')} → {it.get('after', '')}{d.get('unit', '')}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "map":
+        out.append(f"地図: base={d.get('base', '')} / mode={d.get('mapMode', '')}")
+        for pt in d.get("mapPoints") or []:
+            out.append(f"{pt.get('name', '')}: {pt.get('value', '')}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "share-stack":
+        for bar in d.get("stackBars") or []:
+            segs = " / ".join(f"{s.get('label', '')} {s.get('value', '')}" for s in bar.get("segments") or [])
+            out.append(f"{bar.get('label', '')}: {segs}（単位: {d.get('unit', '')}）")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "waterfall":
+        if d.get("wfStart"):
+            out.append(f"始点 {d['wfStart'].get('label', '')}: {d['wfStart'].get('value', '')}")
+        for s in d.get("wfSteps") or []:
+            out.append(f"増減 {s.get('label', '')}: {s.get('value', '')}")
+        if d.get("wfEnd"):
+            ev = d["wfEnd"].get("value")
+            out.append(f"終点 {d['wfEnd'].get('label', '')}: {ev if ev is not None else '（合計を自動計算）'}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "grouped-bars":
+        names = [s.get("name", "") for s in d.get("barSeries") or []]
+        out.append("指標: " + " / ".join(names))
+        for g in d.get("barGroups") or []:
+            vals = " / ".join("—" if v is None else str(v) for v in g.get("values") or [])
+            mark = " ★強調" if g.get("highlight") else ""
+            out.append(f"{g.get('label', '')}: {vals}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "waffle":
+        out.append(f"{d.get('display') or str(d.get('waffleValue', '')) + '/' + str(d.get('waffleTotal', ''))}（{d.get('label', '')}）")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "profile-card":
+        who = d.get("name", "") + (f"（{d['role']}）" if d.get("role") else "") + (f" / {d['affiliation']}" if d.get("affiliation") else "")
+        out.append(f"人物: {who}")
+        if d.get("context"):
+            out.append("context: " + d["context"].replace("\n", " / "))
+        for pt in d.get("profilePoints") or []:
+            out.append("要点: " + str(pt).replace("\n", " / "))
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "radar":
+        out.append("軸: " + " / ".join(d.get("axes") or []))
+        for s in d.get("radarSeries") or []:
+            vals = " / ".join(str(v) for v in s.get("values") or [])
+            mark = " ★強調" if s.get("highlight") else ""
+            out.append(f"{s.get('name', '')}: {vals}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "quadrant":
+        out.append(f"軸: x={d.get('xLabel', '')} / y={d.get('yLabel', '')}")
+        q = d.get("quadrants") or {}
+        ql = "、".join(f"{k}={v}" for k, v in q.items() if v)
+        if ql:
+            out.append("象限: " + ql)
+        for pt in d.get("chartPoints") or []:
+            mark = " ★強調" if pt.get("highlight") else ""
+            out.append(f"{pt.get('name', '')}: x={pt.get('x', '')}, y={pt.get('y', '')}{mark}")
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
+    elif kind == "venn":
+        for s in d.get("sets") or []:
+            items = "、".join(s.get("items") or [])
+            out.append(f"集合 {s.get('label', '')}" + (f": {items}" if items else ""))
+        ov = d.get("overlap") or {}
+        if ov.get("label") or ov.get("items"):
+            items = "、".join(ov.get("items") or [])
+            out.append(f"重なり {ov.get('label', '')}" + (f": {items}" if items else ""))
+        if d.get("note"):
+            out.append("note: " + d["note"].replace("\n", " / "))
     return out
 
 

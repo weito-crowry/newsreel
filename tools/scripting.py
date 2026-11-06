@@ -39,6 +39,14 @@ VOICEVOX_PY = Path.home() / "workspace/voicevox/venv/bin/python"
 DONE_STATUSES = {"脚本済み", "音声化済み", "動画化済み", "投稿済み"}
 VOICE_DEFAULTS = {"styleId": 2, "speed": 1.12, "tailSilence": 0.28}
 
+# シート読み取りのスナップショットキャッシュ（2026-11-06 田中さんの指示で追加）。
+# list/materials/scaffold は毎回シート全行を読んでいたため、並行実行で Sheets の
+# レート制限に当たった。読み取り専用コマンドは TTL 内のキャッシュを使い、
+# finalize 系（書き込みを伴う）だけが常に最新を読み、結果をキャッシュへ書き戻す。
+SHEET_CACHE_PATH = DEFAULT_WORK_DIR / "sheet_cache.json"
+SHEET_CACHE_TTL = 900  # 秒。main() が --sheet-cache-ttl で上書きする
+SHEET_CACHE_FRESH = False  # main() が --fresh-sheet で立てる
+
 
 def now_jst() -> datetime:
     return datetime.now(JST)
@@ -56,10 +64,52 @@ def cli(gws: str, service: str, *args: str) -> dict:
 
 
 # ---------------------------------------------------------------- sheet ----
-def read_sheet(gws: str, sheet_id: str):
+def save_sheet_cache(articles, groups, sheet_id: str):
+    try:
+        SHEET_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SHEET_CACHE_PATH.write_text(json.dumps(
+            {"sheet_id": sheet_id, "fetched_at": datetime.now(timezone.utc).timestamp(),
+             "articles": articles, "groups": groups},
+            ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # キャッシュ保存の失敗は本処理を止めない
+
+
+def load_sheet_cache(sheet_id: str):
+    if SHEET_CACHE_TTL <= 0 or not SHEET_CACHE_PATH.exists():
+        return None
+    try:
+        cache = json.loads(SHEET_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if cache.get("sheet_id") != sheet_id:
+        return None
+    age = datetime.now(timezone.utc).timestamp() - float(cache.get("fetched_at", 0))
+    if age > SHEET_CACHE_TTL:
+        return None
+    print(f"（シートキャッシュ使用: {int(age)}秒前取得）", file=sys.stderr)
+    return cache["articles"], cache["groups"]
+
+
+def read_sheet(gws: str, sheet_id: str, fresh: bool = False):
+    """シートを読む。fresh でない読み取り専用呼び出しは TTL 内のキャッシュを使う。
+
+    finalize 系は fresh=True で常に最新を読み、書き込み結果をキャッシュへ
+    書き戻す（save_sheet_cache）ので、後続のキャッシュ読みとも矛盾しない。
+    """
+    if not fresh and not SHEET_CACHE_FRESH:
+        cached = load_sheet_cache(sheet_id)
+        if cached is not None:
+            return cached
+    articles, groups = _fetch_sheet(gws, sheet_id)
+    save_sheet_cache(articles, groups, sheet_id)
+    return articles, groups
+
+
+def _fetch_sheet(gws: str, sheet_id: str):
     """ニュースタブ全行とグループタブを読み、記事dictのリストとグループ情報を返す。"""
     out = cli(gws, "sheets", "spreadsheets", "values", "get",
-              "--params", json.dumps({"spreadsheetId": sheet_id, "range": "ニュース!A1:T2000"}))
+              "--params", json.dumps({"spreadsheetId": sheet_id, "range": "ニュース!A1:T"}))
     rows = out.get("values", [])
 
     def c(r, i):
@@ -355,7 +405,7 @@ def cmd_layout(args) -> int:
 
 
 def cmd_finalize(args) -> int:
-    articles, groups = read_sheet(args.gws, args.sheet_id)
+    articles, groups = read_sheet(args.gws, args.sheet_id, fresh=True)
     topics = build_topics(articles)
     t = topics.get(args.topic)
     if t is None:
@@ -405,6 +455,13 @@ def cmd_finalize(args) -> int:
         cli(args.gws, "sheets", "spreadsheets", "values", "batchUpdate",
             "--params", json.dumps({"spreadsheetId": args.sheet_id}),
             "--json", json.dumps({"valueInputOption": "RAW", "data": updates}))
+    # 書き戻した状態をキャッシュへ反映し、後続の読み取り専用コマンドと矛盾させない
+    by_row = {a["row"]: a for a in articles}
+    for u in updates:
+        row = int(u["range"].split("!D")[1])
+        if row in by_row:
+            by_row[row]["status"] = u["values"][0][0]
+    save_sheet_cache(articles, groups, args.sheet_id)
 
     # --- Drive: scripts/<YYYY-MM-DD_repId>/ へ production.json + script.md
     folder_id = drive_find_folder(args.gws, args.drive_scripts_folder, folder_name)
@@ -456,10 +513,131 @@ def cmd_finalize(args) -> int:
     return 0
 
 
+def _finalize_updates(t, rep):
+    """finalize でシートへ書くステータス更新の一覧（選択済みメンバー＋代表行）。"""
+    updates = []
+    for a in t["members"]:
+        target = None
+        if a["status"] == "選択済み":
+            target = "脚本済み"
+        elif a["id"] == rep["id"] and a["status"] in ("取得", "確認済み", "却下"):
+            target = "脚本済み"  # 代表行が 脚本済み でないとキューに載らない
+        if target:
+            updates.append({"range": f"ニュース!D{a['row']}", "values": [[target]]})
+    return updates
+
+
+def cmd_finalize_batch(args) -> int:
+    """複数トピックの finalize をまとめて行う（2026-11-06 追加）。
+
+    シート読み取りは最初に1回（fresh）、ステータス書き込みは全トピック分を
+    1回の batchUpdate に集約する。個別 finalize を N 回回す場合と比べて
+    Sheets 呼び出しが読み1＋書き1で済む。Drive 配置と準備時間ログは
+    トピックごとに行う（Drive はレート制限の対象外）。
+    成果物の検証（存在・id 照合・レイアウト）で落ちたトピックは飛ばし、
+    結果一覧に理由を残す。
+    """
+    articles, groups = read_sheet(args.gws, args.sheet_id, fresh=True)
+    topics = build_topics(articles)
+    results: list[dict] = []
+    prepared = []
+    all_updates: list[dict] = []
+    for key in args.topics:
+        t = topics.get(key)
+        if t is None:
+            results.append({"topic": key, "ok": False, "error": "トピックが見つかりません"})
+            continue
+        rep = t["rep"]
+        prod_path = args.scripts_dir / f"production-{rep['id']}.json"
+        script_path = args.scripts_dir / f"script-{rep['id']}.md"
+        missing = [p.name for p in (prod_path, script_path) if not p.exists()]
+        if missing:
+            results.append({"topic": key, "ok": False,
+                            "error": f"成果物がありません: {missing}"})
+            continue
+        prod = json.loads(prod_path.read_text(encoding="utf-8"))
+        if prod.get("id") != rep["id"]:
+            results.append({"topic": key, "ok": False,
+                            "error": "production.json の id が代表記事と一致しません"})
+            continue
+        warns = check_production(prod_path)
+        if warns and not args.skip_layout_check:
+            results.append({"topic": key, "ok": False, "error": "レイアウト警告", "warns": warns})
+            continue
+        ups = _finalize_updates(t, rep)
+        prepared.append((key, t, rep, prod_path, script_path, ups))
+        all_updates += ups
+    if args.dry_run:
+        print(json.dumps({"dry_run": True,
+                          "prepared": [p[0] for p in prepared],
+                          "sheet_updates": [u["range"] for u in all_updates],
+                          "results": results}, ensure_ascii=False, indent=1))
+        return 0 if prepared else 1
+    if all_updates:
+        cli(args.gws, "sheets", "spreadsheets", "values", "batchUpdate",
+            "--params", json.dumps({"spreadsheetId": args.sheet_id}),
+            "--json", json.dumps({"valueInputOption": "RAW", "data": all_updates}))
+    by_row = {a["row"]: a for a in articles}
+    for u in all_updates:
+        row = int(u["range"].split("!D")[1])
+        if row in by_row:
+            by_row[row]["status"] = u["values"][0][0]
+    save_sheet_cache(articles, groups, args.sheet_id)
+
+    state = load_state(args.state_file)
+    for key, t, rep, prod_path, script_path, ups in prepared:
+        folder_name = f"{rep['pub'][:10]}_{rep['id']}"
+        folder_id = drive_find_folder(args.gws, args.drive_scripts_folder, folder_name)
+        if not folder_id:
+            folder_id = drive_create_folder(args.gws, args.drive_scripts_folder, folder_name)
+        existing = drive_child_names(args.gws, folder_id)
+        uploaded, skipped, failed = [], [], None
+        for p, target_name in ((prod_path, "production.json"), (script_path, "script.md")):
+            if target_name in existing:
+                skipped.append(target_name)
+                continue
+            r = subprocess.run([args.gws, "drive", "+upload", str(p), "--parent", folder_id,
+                                "--name", target_name],
+                               capture_output=True, text=True, timeout=180)
+            if r.returncode != 0:
+                failed = f"アップロード失敗: {p.name}: {r.stderr.strip()[:200]}"
+                break
+            uploaded.append(target_name)
+        if failed:
+            results.append({"topic": key, "ok": False, "error": failed,
+                            "note": "シートのステータスは更新済み"})
+            continue
+        entry = state.get(key, {})
+        sel = parse_iso(entry.get("first_seen"))
+        start = parse_iso(entry.get("materials_at"))
+        done = now_jst()
+        work = f"約{round((done - start).total_seconds() / 60)}分" if start else ""
+        name = (groups.get(key) or {}).get("topic") or rep["title"][:40]
+        row = (f"| {name} | {fmt_md(sel)} | {fmt_md(start)} | {fmt_md(done)} | {work} "
+               f"| 定型フロー（scripting.py）で脚本化 |")
+        log_path = args.scripts_dir / "prep-time-log.md"
+        if log_path.exists():
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(row + "\n")
+        entry["finalized_at"] = done.isoformat(timespec="seconds")
+        state[key] = entry
+        results.append({"topic": key, "ok": True, "sheet_updated": len(ups),
+                        "drive_folder": folder_name, "uploaded": uploaded,
+                        "skipped_existing": skipped})
+    save_state(args.state_file, state)
+    print(json.dumps({"finalized": [r["topic"] for r in results if r.get("ok")],
+                      "results": results}, ensure_ascii=False, indent=1))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="脚本化の定型フロー支援ツール")
     ap.add_argument("--gws", default=DEFAULT_GWS)
     ap.add_argument("--sheet-id", default=DEFAULT_SHEET_ID)
+    ap.add_argument("--sheet-cache-ttl", type=int, default=900,
+                    help="シート読み取りキャッシュの有効秒数（0で無効）")
+    ap.add_argument("--fresh-sheet", action="store_true",
+                    help="キャッシュを使わずシートを読み直す")
     ap.add_argument("--scripts-dir", type=Path, default=DEFAULT_SCRIPTS_DIR)
     ap.add_argument("--texts-dir", type=Path, default=DEFAULT_TEXTS_DIR)
     ap.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
@@ -485,10 +663,18 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--skip-layout-check", action="store_true")
     p.set_defaults(fn=cmd_finalize)
+    p = sub.add_parser("finalize-batch", help="複数トピックの完了処理を一括で（シート読み書き各1回）")
+    p.add_argument("topics", nargs="+")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--skip-layout-check", action="store_true")
+    p.set_defaults(fn=cmd_finalize_batch)
     p = sub.add_parser("layout", help="レイアウトのはみ出しチェック")
     p.add_argument("production")
     p.set_defaults(fn=cmd_layout)
     args = ap.parse_args()
+    global SHEET_CACHE_TTL, SHEET_CACHE_FRESH
+    SHEET_CACHE_TTL = args.sheet_cache_ttl
+    SHEET_CACHE_FRESH = args.fresh_sheet
     return args.fn(args)
 
 

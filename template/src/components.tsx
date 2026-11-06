@@ -453,6 +453,1656 @@ const SummaryDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
   );
 };
 
+/* ---------------- 追加図解（2026-11-06、仕様: template-spec-2026-11-06.md） ----------------
+   いずれも表示タイミングはデータ側の atUnit が決める（省略時は最初から）。
+   プログラムは機構だけを持ち、様式の既定値は持たない（従来種別と同じ原則）。 */
+
+const HeroNumberDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const labelAt = atOf(d.labelAtUnit);
+  const valueAt = atOf(d.atUnit);
+  const noteAt = atOf(d.noteAtUnit);
+  const subs = d.sub ?? [];
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600, textAlign: "center" }}>
+      {d.label && frame >= labelAt && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 2 }}>{d.label}</div>
+        </FadeIn>
+      )}
+      {d.value && frame >= valueAt && (
+        <FadeIn>
+          <div style={{ fontSize: 190, fontWeight: 800, color: "#fff", textShadow: OUTLINE, lineHeight: 1.25, marginTop: 6 }}>
+            {d.value}
+          </div>
+        </FadeIn>
+      )}
+      {d.valueNote && frame >= valueAt && (
+        <FadeIn>
+          <div style={{ fontSize: 44, color: INK, marginTop: 10, whiteSpace: "pre-line", lineHeight: 1.5 }}>{d.valueNote}</div>
+        </FadeIn>
+      )}
+      {subs.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 40, marginTop: 52 }}>
+          {subs.map((s, i) => (
+            <React.Fragment key={i}>
+              {frame >= atOf(s.atUnit) ? (
+                <FadeIn>
+                  <div style={{ ...boxStyle, padding: "22px 44px", minWidth: 380 }}>
+                    <div style={{ fontSize: 64, fontWeight: 800, color: "#fff", lineHeight: 1.2 }}>{s.value}</div>
+                    <div style={{ fontSize: 36, color: INK, marginTop: 8, whiteSpace: "pre-line", lineHeight: 1.45 }}>{s.label}</div>
+                  </div>
+                </FadeIn>
+              ) : (
+                <div style={{ minWidth: 380 }} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+      {d.note && frame >= noteAt && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 40, whiteSpace: "pre-line", lineHeight: 1.5 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const NumbersTableDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const columns = d.columns ?? [];
+  const rows = d.rows ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  // 行の高さは固定し、行ごとの表示タイミングで表全体が上下に動かないようにする
+  const ROW_H = 108;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      <FadeIn>
+        <div>
+          {/* 列見出し行 */}
+          <div style={{ display: "flex", alignItems: "flex-end", padding: "0 24px 14px" }}>
+            <div style={{ width: 500, flexShrink: 0 }} />
+            {columns.map((c, ci) => (
+              <div key={ci} style={{ flex: 1, textAlign: "right", fontSize: 38, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.35 }}>
+                {c}
+              </div>
+            ))}
+          </div>
+          {rows.map((r, ri) => {
+            const visible = frame >= atOf(r.atUnit);
+            const hl = !!r.highlight;
+            return (
+              <div
+                key={ri}
+                style={{
+                  height: ROW_H,
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0 24px",
+                  boxSizing: "border-box",
+                  borderTop: hl ? undefined : "2px solid rgba(160,200,255,0.35)",
+                  ...(hl
+                    ? {
+                        background: "rgba(255,216,61,0.13)",
+                        border: `2px solid ${YELLOW}`,
+                        borderRadius: 12,
+                      }
+                    : {}),
+                }}
+              >
+                {visible && (
+                  <FadeIn style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                    <div
+                      style={{
+                        width: 500,
+                        flexShrink: 0,
+                        fontSize: 40,
+                        fontWeight: 700,
+                        color: hl ? YELLOW : "#fff",
+                        whiteSpace: "pre-line",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {r.label}
+                    </div>
+                    {(r.values ?? []).map((v, vi) => (
+                      <div
+                        key={vi}
+                        style={{
+                          flex: 1,
+                          textAlign: "right",
+                          fontSize: 48,
+                          fontWeight: 800,
+                          color: hl ? YELLOW : "#fff",
+                          whiteSpace: "pre-line",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {v}
+                      </div>
+                    ))}
+                  </FadeIn>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </FadeIn>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>
+            {d.note}
+          </div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const StepsDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const steps = d.steps ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 270 : 235, width: 1600, display: "flex", alignItems: "stretch", gap: 22 }}>
+      {steps.map((s, i) => {
+        const visible = frame >= atOf(s.atUnit);
+        const nextVisible = i + 1 < steps.length ? frame >= atOf(steps[i + 1].atUnit) : false;
+        return (
+          <React.Fragment key={i}>
+            {visible ? (
+              <FadeIn style={{ flex: 1, display: "flex" }}>
+                <div style={{ ...boxStyle, flex: 1, boxSizing: "border-box", padding: "30px 26px", textAlign: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                    <div
+                      style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: "50%",
+                        background: THEME,
+                        color: "#fff",
+                        fontSize: 30,
+                        fontWeight: 700,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {i + 1}
+                    </div>
+                    <div style={{ fontSize: 42, fontWeight: 700, color: "#fff", whiteSpace: "pre-line", lineHeight: 1.35 }}>{s.title}</div>
+                  </div>
+                  {s.text && (
+                    <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{s.text}</div>
+                  )}
+                </div>
+              </FadeIn>
+            ) : (
+              <div style={{ flex: 1 }} />
+            )}
+            {i + 1 < steps.length && (
+              <div style={{ alignSelf: "center", width: 56, textAlign: "center", fontSize: 72, fontWeight: 700, color: YELLOW, opacity: nextVisible ? 1 : 0 }}>
+                ➜
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
+const ItemsDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const items = d.items ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 285 : 250, width: 1600, display: "flex", alignItems: "stretch", gap: 30 }}>
+      {items.map((it, i) => {
+        const visible = frame >= atOf(it.atUnit);
+        return visible ? (
+          <FadeIn key={i} style={{ flex: 1, display: "flex" }}>
+            <div style={{ ...boxStyle, flex: 1, boxSizing: "border-box", padding: "30px 26px", textAlign: "center" }}>
+              <div style={{ fontSize: 44, fontWeight: 700, color: "#fff", whiteSpace: "pre-line", lineHeight: 1.35 }}>{it.title}</div>
+              {it.text && (
+                <div style={{ fontSize: 38, color: INK, marginTop: 12, lineHeight: 1.55, whiteSpace: "pre-line" }}>{it.text}</div>
+              )}
+            </div>
+          </FadeIn>
+        ) : (
+          <div key={i} style={{ flex: 1 }} />
+        );
+      })}
+    </div>
+  );
+};
+
+const QuoteDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const quoteAt = atOf(d.atUnit);
+  const speakerAt = atOf(d.speakerAtUnit);
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 260 : 225, width: 1600 }}>
+      {d.context && frame >= quoteAt && (
+        <FadeIn>
+          <div style={{ fontSize: 38, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.45 }}>{d.context}</div>
+        </FadeIn>
+      )}
+      {d.quote && frame >= quoteAt && (
+        <FadeIn>
+          <div style={{ display: "flex", marginTop: 18 }}>
+            <div style={{ fontSize: 130, fontWeight: 800, color: THEME, lineHeight: 0.9, marginRight: 26, flexShrink: 0 }}>“</div>
+            <div style={{ fontSize: 58, fontWeight: 700, color: "#fff", textShadow: OUTLINE, whiteSpace: "pre-line", lineHeight: 1.5, paddingTop: 26 }}>
+              {d.quote}
+            </div>
+          </div>
+        </FadeIn>
+      )}
+      {(d.speaker || d.role) && frame >= speakerAt && (
+        <FadeIn>
+          <div style={{ textAlign: "right", marginTop: 54 }}>
+            <span style={{ fontSize: 44, fontWeight: 700, color: "#fff" }}>{d.speaker ?? ""}</span>
+            {d.role && <span style={{ fontSize: 36, color: INK, marginLeft: 18 }}>{d.role}</span>}
+          </div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+/* ---------------- 追加図解 第2弾（2026-11-06、仕様: template-spec-2026-11-06.md 第2弾） ---------------- */
+
+const BenchmarkTableDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const columns = d.columns ?? [];
+  const rows = d.benchRows ?? [];
+  const best = d.best ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  // 寸法は numbers-table と同一（行高固定で表示タイミングによる上下動を防ぐ）
+  const ROW_H = 108;
+  const BEST = "#7ddb8a";
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      <FadeIn>
+        <div>
+          <div style={{ display: "flex", alignItems: "flex-end", padding: "0 24px 14px" }}>
+            <div style={{ width: 500, flexShrink: 0 }} />
+            {columns.map((c, ci) => (
+              <div key={ci} style={{ flex: 1, textAlign: "right", fontSize: 38, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.35 }}>
+                {c}
+              </div>
+            ))}
+          </div>
+          {rows.map((r, ri) => {
+            const visible = frame >= atOf(r.atUnit);
+            const hl = !!r.highlight;
+            return (
+              <div
+                key={ri}
+                style={{
+                  height: ROW_H,
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0 24px",
+                  boxSizing: "border-box",
+                  borderTop: hl ? undefined : "2px solid rgba(160,200,255,0.35)",
+                  ...(hl
+                    ? {
+                        background: "rgba(255,216,61,0.13)",
+                        border: `2px solid ${YELLOW}`,
+                        borderRadius: 12,
+                      }
+                    : {}),
+                }}
+              >
+                {visible && (
+                  <FadeIn style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                    <div
+                      style={{
+                        width: 500,
+                        flexShrink: 0,
+                        fontSize: 40,
+                        fontWeight: 700,
+                        color: hl ? YELLOW : "#fff",
+                        whiteSpace: "pre-line",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {r.model}
+                    </div>
+                    {(r.values ?? []).map((v, vi) => {
+                      const isBest = best[vi] === ri;
+                      return (
+                        <div
+                          key={vi}
+                          style={{
+                            flex: 1,
+                            textAlign: "right",
+                            fontSize: 48,
+                            fontWeight: 800,
+                            color: hl ? YELLOW : isBest ? BEST : "#fff",
+                            whiteSpace: "pre-line",
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          {v}
+                          {isBest && <span style={{ fontSize: 30, marginLeft: 8, verticalAlign: "top" }}>◆</span>}
+                        </div>
+                      );
+                    })}
+                  </FadeIn>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </FadeIn>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>
+            {d.note}
+          </div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const BenchmarkChartDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const bars = d.bars ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const maxVal = bars.reduce((a, b) => Math.max(a, b.value || 0), 0);
+  // 軸の最大値: データ指定（max）が無ければ最大値×1.2を10単位で切り上げ（機構としての換算）
+  const axisMax = d.max ?? Math.max(10, Math.ceil((maxVal * 1.2) / 10) * 10);
+  const BAR_H = 84;
+  const BAR_GAP = 34;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      {d.benchmark && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 1 }}>{d.benchmark}</div>
+        </FadeIn>
+      )}
+      <div style={{ marginTop: 34 }}>
+        {bars.map((b, i) => {
+          const visible = frame >= atOf(b.atUnit);
+          const pct = Math.max(0, Math.min(100, ((b.value || 0) / axisMax) * 100));
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", height: BAR_H, marginBottom: i + 1 < bars.length ? BAR_GAP : 0 }}>
+              <div style={{ width: 460, flexShrink: 0, textAlign: "right", paddingRight: 28, fontSize: 40, fontWeight: 700, color: b.highlight ? YELLOW : "#fff", whiteSpace: "pre-line", lineHeight: 1.3 }}>
+                {visible ? b.model : ""}
+              </div>
+              <div style={{ position: "relative", flex: 1, height: BAR_H, borderLeft: "3px solid rgba(160,200,255,0.5)" }}>
+                {visible && (
+                  <FadeIn>
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        height: BAR_H,
+                        width: `${pct}%`,
+                        borderRadius: "0 10px 10px 0",
+                        background: b.highlight
+                          ? `linear-gradient(90deg, #c79a00, ${YELLOW})`
+                          : "linear-gradient(90deg, #0f4c8c, #3d8bdd)",
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: `calc(${pct}% + 18px)`,
+                        top: 0,
+                        height: BAR_H,
+                        display: "flex",
+                        alignItems: "center",
+                        fontSize: 48,
+                        fontWeight: 800,
+                        color: b.highlight ? YELLOW : "#fff",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {b.value}
+                      {d.unit ?? ""}
+                    </div>
+                  </FadeIn>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 30, whiteSpace: "pre-line", lineHeight: 1.55 }}>
+            {d.note}
+          </div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const CODE_FONT = "ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace";
+
+const CodeBlockDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const at = d.atUnit != null ? (scene.units[d.atUnit]?.startFrame ?? 0) : 0;
+  if (frame < at) return null;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 260 : 225, width: 1600 }}>
+      <FadeIn>
+        {d.caption && (
+          <div style={{ fontSize: 38, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.45 }}>{d.caption}</div>
+        )}
+        {d.above && (
+          <div style={{ fontSize: 38, color: INK, marginTop: d.caption ? 18 : 0, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.above}</div>
+        )}
+        <div
+          style={{
+            marginTop: d.caption || d.above ? 24 : 0,
+            background: "rgba(4,12,24,0.92)",
+            border: "3px solid rgba(160,200,255,0.8)",
+            borderRadius: 16,
+            padding: "36px 48px",
+          }}
+        >
+          {(d.lines ?? []).map((ln, i) => (
+            <div key={i} style={{ fontFamily: CODE_FONT, fontSize: 42, lineHeight: 1.6, color: "#d6e9ff", whiteSpace: "pre" }}>
+              {ln === "" ? " " : ln}
+            </div>
+          ))}
+        </div>
+        {d.below && (
+          <div style={{ fontSize: 38, color: INK, marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.below}</div>
+        )}
+      </FadeIn>
+    </div>
+  );
+};
+
+/* ---------------- 追加図解 第3弾（2026-11-06、仕様: template-spec-2026-11-06.md 第3弾） ---------------- */
+
+const DeltaDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const baseAt = atOf(d.atUnit);
+  const afterAt = atOf(d.afterAtUnit ?? d.atUnit);
+  const changeAt = atOf(d.changeAtUnit ?? d.afterAtUnit ?? d.atUnit);
+  const noteAt = atOf(d.noteAtUnit);
+  const changeColor = d.good === true ? "#7ddb8a" : d.good === false ? "#ff7b7b" : YELLOW;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600, textAlign: "center" }}>
+      {d.label && frame >= baseAt && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 2 }}>{d.label}</div>
+        </FadeIn>
+      )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 40, marginTop: 46 }}>
+        {frame >= baseAt ? (
+          <FadeIn>
+            <div style={{ minWidth: 420 }}>
+              {d.beforeLabel && <div style={{ fontSize: 36, color: "rgba(234,242,251,0.75)", marginBottom: 12 }}>{d.beforeLabel}</div>}
+              <div style={{ fontSize: 72, fontWeight: 700, color: "rgba(234,242,251,0.8)", lineHeight: 1.25 }}>{d.before}</div>
+            </div>
+          </FadeIn>
+        ) : (
+          <div style={{ minWidth: 420 }} />
+        )}
+        <div style={{ fontSize: 84, fontWeight: 700, color: YELLOW, opacity: frame >= afterAt ? 1 : 0 }}>➜</div>
+        {frame >= afterAt ? (
+          <FadeIn>
+            <div style={{ minWidth: 420 }}>
+              {d.afterLabel && <div style={{ fontSize: 36, color: "#9fc6ff", marginBottom: 12 }}>{d.afterLabel}</div>}
+              <div style={{ fontSize: 110, fontWeight: 800, color: "#fff", textShadow: OUTLINE, lineHeight: 1.25 }}>{d.after}</div>
+            </div>
+          </FadeIn>
+        ) : (
+          <div style={{ minWidth: 420 }} />
+        )}
+      </div>
+      {d.change && frame >= changeAt && (
+        <FadeIn>
+          <div style={{ fontSize: 64, fontWeight: 800, color: changeColor, marginTop: 48 }}>{d.change}</div>
+        </FadeIn>
+      )}
+      {d.note && frame >= noteAt && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 36, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const StatGridDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const stats = d.stats ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const grid2 = stats.length === 4;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 230, width: 1600 }}>
+      <div
+        style={
+          grid2
+            ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 30 }
+            : { display: "flex", gap: 30 }
+        }
+      >
+        {stats.map((s, i) => {
+          const visible = frame >= atOf(s.atUnit);
+          return visible ? (
+            <FadeIn key={i} style={grid2 ? {} : { flex: 1, display: "flex" }}>
+              <div style={{ ...boxStyle, flex: 1, boxSizing: "border-box", padding: "32px 34px", textAlign: "center" }}>
+                <div style={{ fontSize: 72, fontWeight: 800, color: "#fff", lineHeight: 1.25, whiteSpace: "pre-line" }}>{s.value}</div>
+                <div style={{ fontSize: 36, color: INK, marginTop: 12, whiteSpace: "pre-line", lineHeight: 1.5 }}>{s.label}</div>
+              </div>
+            </FadeIn>
+          ) : (
+            <div key={i} style={grid2 ? {} : { flex: 1 }} />
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 30, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const SpecListDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const specs = d.specs ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const ROW_H = 96;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      {d.subject && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 1 }}>{d.subject}</div>
+        </FadeIn>
+      )}
+      <div style={{ marginTop: d.subject ? 26 : 0 }}>
+        {specs.map((r, ri) => {
+          const visible = frame >= atOf(r.atUnit);
+          return (
+            <div
+              key={ri}
+              style={{
+                height: ROW_H,
+                display: "flex",
+                alignItems: "center",
+                padding: "0 24px",
+                boxSizing: "border-box",
+                borderTop: ri === 0 ? undefined : "2px solid rgba(160,200,255,0.35)",
+              }}
+            >
+              {visible && (
+                <FadeIn style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                  <div style={{ width: 560, flexShrink: 0, fontSize: 40, fontWeight: 700, color: "#9fc6ff", whiteSpace: "pre-line", lineHeight: 1.35 }}>
+                    {r.item}
+                  </div>
+                  <div style={{ fontSize: 48, fontWeight: 800, color: "#fff", whiteSpace: "pre-line", lineHeight: 1.3 }}>
+                    {r.value}
+                  </div>
+                </FadeIn>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const CHANGELOG_KINDS: Record<string, { badge: string; color: string; bg: string }> = {
+  added: { badge: "追加", color: "#7ddb8a", bg: "rgba(125,219,138,0.13)" },
+  changed: { badge: "変更", color: "#9fc6ff", bg: "rgba(61,139,221,0.16)" },
+  fixed: { badge: "修正", color: YELLOW, bg: "rgba(255,216,61,0.13)" },
+  removed: { badge: "削除", color: "#ff7b7b", bg: "rgba(255,123,123,0.12)" },
+};
+
+const ChangelogDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const changes = d.changes ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const ROW_H = 92;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 230, width: 1600 }}>
+      {changes.map((c, i) => {
+        const visible = frame >= atOf(c.atUnit);
+        const k = CHANGELOG_KINDS[c.kind] ?? CHANGELOG_KINDS.changed;
+        return (
+          <div key={i} style={{ height: ROW_H, display: "flex", alignItems: "center", padding: "0 8px", boxSizing: "border-box" }}>
+            {visible && (
+              <FadeIn style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                <div
+                  style={{
+                    width: 150,
+                    flexShrink: 0,
+                    textAlign: "center",
+                    background: k.bg,
+                    border: `2px solid ${k.color}`,
+                    borderRadius: 10,
+                    padding: "8px 0",
+                    fontSize: 34,
+                    fontWeight: 700,
+                    color: k.color,
+                  }}
+                >
+                  {c.badge ?? k.badge}
+                </div>
+                <div style={{ fontSize: 40, fontWeight: 700, color: "#fff", marginLeft: 34, whiteSpace: "pre-line", lineHeight: 1.45 }}>
+                  {c.text}
+                </div>
+              </FadeIn>
+            )}
+          </div>
+        );
+      })}
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 24, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const RankingListDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const entries = d.entries ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const ROW_H = 84;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      {d.rankTitle && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 1 }}>{d.rankTitle}</div>
+        </FadeIn>
+      )}
+      <div style={{ marginTop: d.rankTitle ? 22 : 0 }}>
+        {entries.map((e, i) => {
+          const visible = frame >= atOf(e.atUnit);
+          const hl = !!e.highlight;
+          return (
+            <div
+              key={i}
+              style={{
+                height: ROW_H,
+                display: "flex",
+                alignItems: "center",
+                padding: "0 24px",
+                boxSizing: "border-box",
+                ...(hl
+                  ? { background: "rgba(255,216,61,0.13)", border: `2px solid ${YELLOW}`, borderRadius: 12 }
+                  : { borderTop: i === 0 ? undefined : "2px solid rgba(160,200,255,0.35)" }),
+              }}
+            >
+              {visible && (
+                <FadeIn style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                  <div
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: "50%",
+                      background: i === 0 ? YELLOW : THEME,
+                      color: i === 0 ? "#17222e" : "#fff",
+                      fontSize: 34,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {i + 1}
+                  </div>
+                  <div style={{ fontSize: 44, fontWeight: 700, color: hl ? YELLOW : "#fff", marginLeft: 30, whiteSpace: "pre-line", lineHeight: 1.3 }}>
+                    {e.name}
+                  </div>
+                  {e.score && (
+                    <div style={{ flex: 1, textAlign: "right", fontSize: 48, fontWeight: 800, color: hl ? YELLOW : "#fff" }}>{e.score}</div>
+                  )}
+                </FadeIn>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 24, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+/* ---------------- 追加図解 第4弾（2026-11-06、仕様: template-spec-2026-11-06.md 第4弾） ---------------- */
+
+const TrendChartDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const series = d.series ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const allVals = series.flatMap((s) => s.points.map((p) => p.value || 0));
+  const dataMax = allVals.length ? Math.max(...allVals) : 0;
+  const dataMin = allVals.length ? Math.min(...allVals) : 0;
+  const pad = Math.max(1, (dataMax - dataMin) * 0.18);
+  const axisMax = d.max ?? dataMax + pad;
+  const axisMin = d.min ?? (dataMin < 0 ? dataMin - pad : Math.min(0, dataMin));
+  const range = axisMax - axisMin || 1;
+  const PLOT_W = 1420;
+  const PLOT_H = 460;
+  const LEFT = 130;
+  const TOP = 26;
+  const n = Math.max(...series.map((s) => s.points.length), 1);
+  const xOf = (i: number) => LEFT + (n <= 1 ? PLOT_W / 2 : (i / (n - 1)) * PLOT_W);
+  const yOf = (v: number) => TOP + ((axisMax - v) / range) * PLOT_H;
+  const COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d"];
+  const labels = series[0]?.points.map((p) => p.label) ?? [];
+  const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10));
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+      {(d.label || d.unit) && (
+        <FadeIn>
+          <div style={{ fontSize: 44, fontWeight: 700, color: "#9fc6ff", letterSpacing: 1 }}>
+            {d.label}
+            {d.unit && <span style={{ fontSize: 36, color: "rgba(234,242,251,0.75)", marginLeft: 18 }}>（{d.unit}）</span>}
+          </div>
+        </FadeIn>
+      )}
+      {series.length > 1 && (
+        <div style={{ display: "flex", gap: 36, marginTop: 14 }}>
+          {series.map((s, si) => (
+            <div key={si} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 34, height: 8, background: s.highlight ? YELLOW : COLORS[si % COLORS.length], borderRadius: 4 }} />
+              <div style={{ fontSize: 34, color: INK }}>{s.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <svg width={1600} height={PLOT_H + 96} style={{ marginTop: 10, display: "block" }}>
+        {/* 軸と目盛り */}
+        <line x1={LEFT} y1={TOP} x2={LEFT} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.55)" strokeWidth={3} />
+        <line x1={LEFT} y1={TOP + PLOT_H} x2={LEFT + PLOT_W} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.55)" strokeWidth={3} />
+        {axisMin < 0 && axisMax > 0 && (
+          <line x1={LEFT} y1={yOf(0)} x2={LEFT + PLOT_W} y2={yOf(0)} stroke="rgba(234,242,251,0.5)" strokeWidth={2} strokeDasharray="8 7" />
+        )}
+        <text x={LEFT - 16} y={yOf(axisMax) + 8} textAnchor="end" fontSize={32} fill="#9fc6ff">{fmt(axisMax)}</text>
+        <text x={LEFT - 16} y={yOf(axisMin) + 8} textAnchor="end" fontSize={32} fill="#9fc6ff">{fmt(axisMin)}</text>
+        {axisMin < 0 && axisMax > 0 && (
+          <text x={LEFT - 16} y={yOf(0) + 8} textAnchor="end" fontSize={32} fill="#9fc6ff">0</text>
+        )}
+        {labels.map((lb, i) => (
+          <text key={i} x={xOf(i)} y={TOP + PLOT_H + 52} textAnchor="middle" fontSize={36} fill="#eaf2fb">{lb}</text>
+        ))}
+        {series.map((s, si) => {
+          const color = s.highlight ? YELLOW : COLORS[si % COLORS.length];
+          const vis = s.points.map((p) => frame >= atOf(p.atUnit));
+          return (
+            <g key={si}>
+              {s.points.map((p, i) => {
+                if (i === 0 || !vis[i] || !vis[i - 1]) return null;
+                return (
+                  <line key={`l${i}`} x1={xOf(i - 1)} y1={yOf(s.points[i - 1].value)} x2={xOf(i)} y2={yOf(p.value)}
+                    stroke={color} strokeWidth={s.highlight ? 7 : 5} strokeLinecap="round" />
+                );
+              })}
+              {s.points.map((p, i) => {
+                if (!vis[i]) return null;
+                const showLabel = (d.valueLabels ?? "all") === "all" || ((d.valueLabels ?? "all") === "last" && i === s.points.length - 1);
+                return (
+                  <g key={`p${i}`}>
+                    <circle cx={xOf(i)} cy={yOf(p.value)} r={13} fill={color} stroke="#fff" strokeWidth={3} />
+                    {showLabel && (
+                      <text x={xOf(i)} y={yOf(p.value) - TOP < PLOT_H * 0.15 ? yOf(p.value) + 56 : yOf(p.value) - 28} textAnchor="middle" fontSize={40} fontWeight={700} fill="#fff">
+                        {fmt(p.value)}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const PostCardDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const at = d.atUnit != null ? (scene.units[d.atUnit]?.startFrame ?? 0) : 0;
+  if (frame < at) return null;
+  return (
+    <div style={{ position: "absolute", left: 340, top: accent ? 265 : 225, width: 1240 }}>
+      <FadeIn>
+        <div style={{ background: "rgba(6,16,30,0.95)", border: "3px solid rgba(160,200,255,0.8)", borderRadius: 20, padding: "42px 52px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+            <div style={{ width: 96, height: 96, borderRadius: "50%", background: THEME, color: "#fff", fontSize: 48, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {d.initial ?? ""}
+            </div>
+            <div>
+              <div style={{ fontSize: 44, fontWeight: 800, color: "#fff", lineHeight: 1.3 }}>{d.name}</div>
+              {d.handle && <div style={{ fontSize: 36, color: "rgba(234,242,251,0.65)", marginTop: 4 }}>{d.handle}</div>}
+            </div>
+            {d.date && <div style={{ flex: 1, textAlign: "right", fontSize: 34, color: "rgba(234,242,251,0.6)" }}>{d.date}</div>}
+          </div>
+          <div style={{ fontSize: 46, color: "#fff", lineHeight: 1.6, whiteSpace: "pre-line", marginTop: 32 }}>{d.text}</div>
+          {(d.likes || d.reposts) && (
+            <div style={{ display: "flex", gap: 44, marginTop: 34, paddingTop: 26, borderTop: "2px solid rgba(160,200,255,0.3)", fontSize: 36, color: "rgba(234,242,251,0.8)" }}>
+              {d.likes && <div>いいね <span style={{ fontWeight: 700, color: "#fff" }}>{d.likes}</span></div>}
+              {d.reposts && <div>リポスト <span style={{ fontWeight: 700, color: "#fff" }}>{d.reposts}</span></div>}
+            </div>
+          )}
+        </div>
+        {d.note && (
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        )}
+      </FadeIn>
+    </div>
+  );
+};
+
+const RelationMapDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const nodes = d.nodes ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const nodeBox = (t: string, x: string | undefined, big?: boolean) => (
+    <div style={{ ...boxStyle, padding: "24px 28px", textAlign: "center" }}>
+      <div style={{ fontSize: big ? 46 : 40, fontWeight: 800, color: "#fff", whiteSpace: "pre-line", lineHeight: 1.35 }}>{t}</div>
+      {x && <div style={{ fontSize: 34, color: INK, marginTop: 8, whiteSpace: "pre-line", lineHeight: 1.5 }}>{x}</div>}
+    </div>
+  );
+  if ((d.mode ?? "hub") === "tree") {
+    const n = Math.max(1, nodes.length);
+    const childW = (1600 - (n - 1) * 40) / n;
+    const centers = nodes.map((_, i) => childW * i + 40 * i + childW / 2);
+    return (
+      <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+        <div style={{ position: "relative", height: 520 }}>
+          <svg width={1600} height={520} style={{ position: "absolute", left: 0, top: 0 }}>
+            <line x1={800} y1={150} x2={800} y2={210} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+            {centers.map((cx, i) => (
+              <g key={i}>
+                <line x1={Math.min(800, cx)} y1={210} x2={Math.max(800, cx)} y2={210} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+                <line x1={cx} y1={210} x2={cx} y2={268} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+              </g>
+            ))}
+          </svg>
+          <div style={{ position: "absolute", left: 500, top: 0, width: 600, height: 150, display: "flex" }}>
+            <div style={{ flex: 1 }}>{nodeBox(d.root?.title ?? "", d.root?.text, true)}</div>
+          </div>
+          {nodes.map((nd, i) =>
+            frame >= atOf(nd.atUnit) ? (
+              <div key={i} style={{ position: "absolute", left: childW * i + 40 * i, top: 268, width: childW }}>
+                <FadeIn>{nodeBox(nd.title, nd.text)}</FadeIn>
+                {nd.link && (
+                  <div style={{ textAlign: "center", fontSize: 32, color: "#9fc6ff", marginTop: 10 }}>{nd.link}</div>
+                )}
+              </div>
+            ) : null,
+          )}
+        </div>
+        {d.note && (
+          <FadeIn>
+            <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 6, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+          </FadeIn>
+        )}
+      </div>
+    );
+  }
+  // hub: 中心＋左右の列
+  const leftNodes = nodes.filter((_, i) => i % 2 === 0);
+  const rightNodes = nodes.filter((_, i) => i % 2 === 1);
+  const colY = (count: number, idx: number) => {
+    if (count <= 1) return 280;
+    if (count === 2) return idx === 0 ? 140 : 420;
+    return [80, 280, 480][idx] ?? 280;
+  };
+  const placed = nodes.map((nd, i) => {
+    const side = i % 2 === 0 ? "L" : "R";
+    const col = side === "L" ? leftNodes : rightNodes;
+    const idxInCol = col.indexOf(nd);
+    return { nd, side, cx: side === "L" ? 210 : 1390, cy: colY(col.length, idxInCol) };
+  });
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 245 : 205, width: 1600 }}>
+      <div style={{ position: "relative", height: 580 }}>
+        <svg width={1600} height={580} style={{ position: "absolute", left: 0, top: 0 }}>
+          {placed.map((p, i) =>
+            frame >= atOf(p.nd.atUnit) ? (
+              <line key={i} x1={800} y1={290} x2={p.cx} y2={p.cy} stroke="rgba(160,200,255,0.55)" strokeWidth={3} />
+            ) : null,
+          )}
+        </svg>
+        <div style={{ position: "absolute", left: 540, top: 190, width: 520 }}>
+          <FadeIn>{nodeBox(d.center?.title ?? "", d.center?.text, true)}</FadeIn>
+        </div>
+        {placed.map((p, i) =>
+          frame >= atOf(p.nd.atUnit) ? (
+            <div key={i} style={{ position: "absolute", left: p.cx - 210, top: p.cy - 70, width: 420 }}>
+              <FadeIn>
+                {nodeBox(p.nd.title, p.nd.text)}
+                {p.nd.link && (
+                  <div style={{ textAlign: "center", marginTop: 10 }}>
+                    <span style={{ background: "rgba(10,30,60,0.92)", border: "2px solid rgba(160,200,255,0.5)", borderRadius: 8, padding: "4px 14px", fontSize: 32, color: "#9fc6ff" }}>
+                      {p.nd.link}
+                    </span>
+                  </div>
+                )}
+              </FadeIn>
+            </div>
+          ) : null,
+        )}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const ScatterDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const pts = d.chartPoints ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const xs = pts.map((p) => p.x || 0);
+  const ys = pts.map((p) => p.y || 0);
+  const xMin = d.min ?? 0;
+  const xMax = d.xMax ?? (xs.length ? Math.max(...xs) * 1.15 : 10);
+  const yPad = ys.length ? Math.max(1, (Math.max(...ys) - Math.min(...ys)) * 0.25) : 1;
+  const yMin = d.yMin ?? (ys.length ? Math.min(...ys) - yPad : 0);
+  const yMax = d.yMax ?? (ys.length ? Math.max(...ys) + yPad : 10);
+  const LEFT = 110;
+  const TOP = 30;
+  const PLOT_W = 1440;
+  const PLOT_H = 470;
+  const xOf = (v: number) => LEFT + ((v - xMin) / (xMax - xMin || 1)) * PLOT_W;
+  const yOf = (v: number) => TOP + ((yMax - v) / (yMax - yMin || 1)) * PLOT_H;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+      {d.yLabel && (
+        <FadeIn>
+          <div style={{ fontSize: 38, fontWeight: 700, color: "#9fc6ff" }}>{d.yLabel}</div>
+        </FadeIn>
+      )}
+      <svg width={1600} height={PLOT_H + 90} style={{ display: "block", marginTop: 6 }}>
+        <line x1={LEFT} y1={TOP} x2={LEFT} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.55)" strokeWidth={3} />
+        <line x1={LEFT} y1={TOP + PLOT_H} x2={LEFT + PLOT_W} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.55)" strokeWidth={3} />
+        <text x={LEFT + PLOT_W} y={TOP + PLOT_H + 56} textAnchor="end" fontSize={36} fill="#9fc6ff">{d.xLabel ?? ""}</text>
+        {pts.map((p, i) => {
+          if (frame < atOf(p.atUnit)) return null;
+          const cx = xOf(p.x);
+          const cy = yOf(p.y);
+          const anchorEnd = cx > LEFT + PLOT_W * 0.72;
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={cy} r={p.highlight ? 21 : 16} fill={p.highlight ? YELLOW : "#3d8bdd"} stroke="#fff" strokeWidth={3} />
+              <text x={anchorEnd ? cx - 30 : cx + 30} y={cy + 10} textAnchor={anchorEnd ? "end" : "start"}
+                fontSize={38} fontWeight={700} fill={p.highlight ? YELLOW : "#fff"}>
+                {p.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const DeltaMultiDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const items = d.slopeItems ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const vals = items.flatMap((it) => [it.before || 0, it.after || 0]);
+  const dataMax = vals.length ? Math.max(...vals) : 0;
+  const dataMin = vals.length ? Math.min(...vals) : 0;
+  const axisMax = d.max ?? Math.max(10, Math.ceil((dataMax * 1.15) / 10) * 10);
+  const axisMin = d.min ?? (dataMin < 0 ? Math.floor((dataMin * 1.15) / 10) * 10 : 0);
+  const TOP = 92;
+  const PLOT_H = 440;
+  const LX = 600;
+  const RX = 1180;
+  const yOf = (v: number) => TOP + ((axisMax - v) / (axisMax - axisMin || 1)) * PLOT_H;
+  const COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d", "#ff9f6e", "#c792ea", "#4dd0e1"];
+  const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10));
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+      <div style={{ position: "relative", height: TOP + PLOT_H + 70 }}>
+        <div style={{ position: "absolute", left: LX - 200, top: 0, width: 400, textAlign: "center", fontSize: 40, fontWeight: 700, color: "#9fc6ff" }}>
+          {d.beforeLabel}
+        </div>
+        <div style={{ position: "absolute", left: RX - 200, top: 0, width: 400, textAlign: "center", fontSize: 40, fontWeight: 700, color: "#9fc6ff" }}>
+          {d.afterLabel}
+        </div>
+        <svg width={1600} height={TOP + PLOT_H + 70} style={{ position: "absolute", left: 0, top: 0 }}>
+          <line x1={LX} y1={TOP} x2={LX} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.4)" strokeWidth={3} />
+          <line x1={RX} y1={TOP} x2={RX} y2={TOP + PLOT_H} stroke="rgba(160,200,255,0.4)" strokeWidth={3} />
+          {items.map((it, i) => {
+            if (frame < atOf(it.atUnit)) return null;
+            const color = COLORS[i % COLORS.length];
+            return (
+              <g key={i}>
+                <line x1={LX} y1={yOf(it.before)} x2={RX} y2={yOf(it.after)} stroke={color} strokeWidth={5} strokeLinecap="round" />
+                <circle cx={LX} cy={yOf(it.before)} r={13} fill={color} stroke="#fff" strokeWidth={3} />
+                <circle cx={RX} cy={yOf(it.after)} r={13} fill={color} stroke="#fff" strokeWidth={3} />
+                <text x={LX - 26} y={yOf(it.before) + 10} textAnchor="end" fontSize={40} fontWeight={700} fill="#fff">
+                  {fmt(it.before)}{d.unit ?? ""}
+                </text>
+                <text x={RX + 26} y={yOf(it.after) + 10} textAnchor="start" fontSize={40} fontWeight={700} fill="#fff">
+                  {fmt(it.after)}{d.unit ?? ""}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        {items.map((it, i) => {
+          if (frame < atOf(it.atUnit)) return null;
+          return (
+            <div key={i} style={{ position: "absolute", left: 0, top: yOf(it.before) - 30, width: 400, fontSize: 38, fontWeight: 700, color: COLORS[i % COLORS.length], whiteSpace: "pre-line", lineHeight: 1.4 }}>
+              {it.label}
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+/* タイルマップの配置（col, row）。us は州の2文字略号、jp は都道府県名 */
+const US_TILES: Record<string, [number, number]> = {
+  AK: [0, 0], ME: [11, 0],
+  WA: [1, 1], MT: [2, 1], ND: [3, 1], MN: [4, 1], WI: [5, 1], MI: [6, 1], VT: [9, 1], NH: [10, 1],
+  OR: [1, 2], ID: [2, 2], SD: [3, 2], IA: [4, 2], IL: [5, 2], IN: [6, 2], OH: [7, 2], PA: [8, 2], NY: [9, 2], MA: [10, 2],
+  CA: [1, 3], NV: [2, 3], WY: [3, 3], NE: [4, 3], MO: [5, 3], KY: [6, 3], WV: [7, 3], VA: [8, 3], NJ: [9, 3], CT: [10, 3], RI: [11, 3],
+  AZ: [2, 4], NM: [3, 4], CO: [4, 4], KS: [5, 4], AR: [6, 4], TN: [7, 4], NC: [8, 4], SC: [9, 4], MD: [10, 4], DE: [11, 4],
+  HI: [1, 5], TX: [4, 5], OK: [5, 5], LA: [6, 5], MS: [7, 5], AL: [8, 5], GA: [9, 5], DC: [11, 5],
+  FL: [10, 6],
+};
+const JP_TILES: Record<string, [number, number]> = {
+  "北海道": [8, 0], "青森県": [8, 1],
+  "秋田県": [7, 2], "岩手県": [8, 2],
+  "山形県": [7, 3], "宮城県": [8, 3],
+  "福島県": [8, 4], "富山県": [5, 4], "新潟県": [6, 4],
+  "石川県": [4, 4], "群馬県": [7, 5], "栃木県": [8, 5], "茨城県": [9, 5], "福井県": [4, 5], "長野県": [6, 5],
+  "鳥取県": [2, 6], "島根県": [1, 6], "滋賀県": [4, 6], "岐阜県": [5, 6], "山梨県": [7, 6], "埼玉県": [8, 6], "千葉県": [9, 6],
+  "山口県": [0, 7], "広島県": [1, 7], "岡山県": [2, 7], "兵庫県": [3, 7], "京都府": [4, 7], "愛知県": [5, 7], "東京都": [8, 7],
+  "福岡県": [0, 8], "大分県": [1, 8], "大阪府": [3, 8], "奈良県": [4, 8], "三重県": [5, 8], "静岡県": [7, 8], "神奈川県": [8, 8],
+  "佐賀県": [0, 9], "愛媛県": [1, 9], "香川県": [2, 9], "徳島県": [3, 9], "和歌山県": [4, 9],
+  "長崎県": [0, 10], "熊本県": [1, 10], "高知県": [2, 10],
+  "宮崎県": [2, 11],
+  "鹿児島県": [1, 12],
+  "沖縄県": [0, 13],
+};
+const MAP_TONE_COLORS: Record<string, string> = {
+  good: "#7ddb8a", bad: "#ff7b7b", accent: "#ffd83d", neutral: "#9fc6ff",
+};
+
+const MapDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const pts = d.mapPoints ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const base = d.base ?? "none";
+  const mode = d.mapMode ?? "pin";
+  const tiles = base === "us" ? US_TILES : base === "jp" ? JP_TILES : {};
+  const codes = Object.keys(tiles);
+  const maxCol = codes.length ? Math.max(...codes.map((c) => tiles[c][0])) + 1 : 0;
+  const maxRow = codes.length ? Math.max(...codes.map((c) => tiles[c][1])) + 1 : 0;
+  const pitch = codes.length ? Math.min(1150 / maxCol, 700 / maxRow) : 0;
+  const tile = pitch - 6;
+  const gridW = maxCol * pitch;
+  const gridH = maxRow * pitch;
+  const gridLeft = (1600 - gridW) / 2;
+  const toneFill = (t?: string) =>
+    t === "good" ? "rgba(125,219,138,0.5)" : t === "bad" ? "rgba(255,123,123,0.5)"
+      : t === "accent" ? "rgba(255,216,61,0.5)" : "rgba(61,139,221,0.45)";
+  const centerOf = (p: (typeof pts)[number]) => {
+    if (base !== "none" && p.code && tiles[p.code]) {
+      const [c, r] = tiles[p.code];
+      return { x: gridLeft + c * pitch + pitch / 2 + (p.dx ?? 0), y: r * pitch + pitch / 2 + (p.dy ?? 0) };
+    }
+    return { x: ((p.x ?? 50) / 100) * 1600, y: ((p.y ?? 50) / 100) * 660 };
+  };
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 245 : 205, width: 1600 }}>
+      <div style={{ position: "relative", height: Math.max(gridH, 660) }}>
+        {codes.map((code) => {
+          const [c, r] = tiles[code];
+          const hit = mode === "tile" ? pts.find((p) => p.code === code) : undefined;
+          const short = base === "jp" ? code.replace(/[都府県]$/, "") : code;
+          return (
+            <div key={code} style={{
+              position: "absolute", left: gridLeft + c * pitch + 3, top: r * pitch + 3,
+              width: tile, height: tile, borderRadius: 8,
+              background: hit ? toneFill(hit.tone) : "rgba(61,139,221,0.13)",
+              border: `2px solid ${hit ? MAP_TONE_COLORS[hit.tone ?? "neutral"] : "rgba(160,200,255,0.3)"}`,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              fontSize: base === "jp" ? 19 : 26, fontWeight: 700,
+              color: hit ? "#fff" : "rgba(234,242,251,0.55)",
+            }}>
+              <div>{short}</div>
+              {hit?.value && <div style={{ fontSize: 22, marginTop: 2 }}>{hit.value}</div>}
+            </div>
+          );
+        })}
+        {mode === "pin" && pts.map((p, i) => {
+          if (frame < atOf(p.atUnit)) return null;
+          const { x, y } = centerOf(p);
+          const H = Math.max(gridH, 660);
+          const above = y > H * 0.78 ? true : y < H * 0.18 ? false : i % 2 === 1;
+          return (
+            <div key={i} style={{ position: "absolute", left: x, top: y }}>
+              <div style={{ position: "absolute", left: -13, top: -13, width: 26, height: 26, borderRadius: "50%", background: MAP_TONE_COLORS[p.tone ?? "neutral"], border: "3px solid #fff" }} />
+              <div style={{
+                position: "absolute", left: -135, width: 270,
+                ...(above ? { bottom: 22 } : { top: 22 }),
+                background: "rgba(6,16,30,0.94)", border: `2px solid ${MAP_TONE_COLORS[p.tone ?? "neutral"]}`,
+                borderRadius: 10, padding: "8px 10px", textAlign: "center",
+              }}>
+                <div style={{ fontSize: 29, fontWeight: 700, color: "#fff", lineHeight: 1.35 }}>{p.name}</div>
+                {p.value && <div style={{ fontSize: 28, color: MAP_TONE_COLORS[p.tone ?? "neutral"], marginTop: 3, lineHeight: 1.35 }}>{p.value}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 14, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const STACK_COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d", "#ff9f6e", "#c792ea", "#4dd0e1"];
+
+const ShareStackDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const bars = d.stackBars ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const pct = (v: number, total: number) => (total > 0 ? Math.round((v / total) * 1000) / 10 : 0);
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      {bars.map((bar, bi) => {
+        if (frame < atOf(bar.atUnit)) return null;
+        const total = bar.segments.reduce((a, s) => a + (s.value || 0), 0);
+        return (
+          <FadeIn key={bi}>
+            <div style={{ marginBottom: bi + 1 < bars.length ? 54 : 0 }}>
+              <div style={{ display: "flex", alignItems: "baseline", marginBottom: 16 }}>
+                {bar.label && <div style={{ fontSize: 40, fontWeight: 700, color: "#fff" }}>{bar.label}</div>}
+                <div style={{ flex: 1, textAlign: "right", fontSize: 38, color: "#9fc6ff" }}>
+                  合計 {total.toLocaleString()}{d.unit ?? ""}
+                </div>
+              </div>
+              <div style={{ display: "flex", height: 92, borderRadius: 10, overflow: "hidden", border: "2px solid rgba(160,200,255,0.5)" }}>
+                {bar.segments.map((s, si) => (
+                  <div key={si} style={{ width: `${pct(s.value, total)}%`, background: STACK_COLORS[si % STACK_COLORS.length], display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {pct(s.value, total) >= 9 && (
+                      <span style={{ fontSize: 42, fontWeight: 800, color: "#10222f" }}>{pct(s.value, total)}%</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 36px", marginTop: 18 }}>
+                {bar.segments.map((s, si) => (
+                  <div key={si} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 36, color: INK }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 5, background: STACK_COLORS[si % STACK_COLORS.length], display: "inline-block" }} />
+                    {s.label} {s.value.toLocaleString()}{d.unit ?? ""}（{pct(s.value, total)}%）
+                  </div>
+                ))}
+              </div>
+            </div>
+          </FadeIn>
+        );
+      })}
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 30, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const WaterfallDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const steps = d.wfSteps ?? [];
+  const startV = d.wfStart?.value ?? 0;
+  const endV = d.wfEnd?.value ?? startV + steps.reduce((a, s) => a + (s.value || 0), 0);
+  type Col = { label: string; from: number; to: number; kind: "start" | "step" | "end"; atUnit?: number };
+  const cols: Col[] = [];
+  if (d.wfStart) cols.push({ label: d.wfStart.label, from: 0, to: startV, kind: "start" });
+  let cum = startV;
+  for (const s of steps) {
+    cols.push({ label: s.label, from: cum, to: cum + (s.value || 0), kind: "step", atUnit: s.atUnit });
+    cum += s.value || 0;
+  }
+  if (d.wfEnd) cols.push({ label: d.wfEnd.label, from: 0, to: endV, kind: "end" });
+  const allV = cols.flatMap((c) => [c.from, c.to, 0]);
+  const vmax = Math.max(...allV, 0);
+  const vmin = Math.min(...allV, 0);
+  const pad = Math.max(1, (vmax - vmin) * 0.14);
+  const hi = vmax + pad;
+  const lo = vmin - pad;
+  const PLOT_H = 450;
+  const yOf = (v: number) => ((hi - v) / (hi - lo || 1)) * PLOT_H;
+  const n = Math.max(1, cols.length);
+  const gap = 56;
+  const colW = Math.min(320, (1600 - (n - 1) * gap) / n);
+  const totalW = colW * n + gap * (n - 1);
+  const left0 = (1600 - totalW) / 2;
+  const fmt = (v: number) => v.toLocaleString();
+  const lastStepAt = steps.length ? atOf(steps[steps.length - 1].atUnit) : 0;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      <div style={{ position: "relative", height: PLOT_H + 130 }}>
+        <div style={{ position: "absolute", left: left0, top: yOf(0), width: totalW, borderTop: "3px solid rgba(160,200,255,0.55)" }} />
+        {cols.map((c, i) => {
+          const visible = c.kind === "start" ? true : c.kind === "end" ? frame >= lastStepAt : frame >= atOf(c.atUnit);
+          if (!visible) return null;
+          const x = left0 + i * (colW + gap);
+          const top = yOf(Math.max(c.from, c.to));
+          const h = Math.max(6, Math.abs(yOf(c.from) - yOf(c.to)));
+          const val = c.kind === "step" ? c.to - c.from : c.to;
+          const neg = val < 0;
+          const fill = c.kind === "end" ? "linear-gradient(180deg, #c79a00, #ffd83d)" : neg ? "#c0453e" : "#2f6fb4";
+          const next = cols[i + 1];
+          const nextVisible = next && (next.kind === "end" ? frame >= lastStepAt : next.kind === "start" ? true : frame >= atOf(next.atUnit));
+          return (
+            <div key={i}>
+              {next && nextVisible && (
+                <div style={{ position: "absolute", left: x + colW, top: yOf(c.to), width: gap, borderTop: "3px dashed rgba(234,242,251,0.5)" }} />
+              )}
+              <FadeIn>
+                <div style={{ position: "absolute", left: x, top, width: colW, height: h, background: fill, borderRadius: 8, border: c.kind === "end" ? `3px solid ${YELLOW}` : "3px solid rgba(160,200,255,0.5)" }} />
+                <div style={{ position: "absolute", left: x - 20, top: top - 66, width: colW + 40, textAlign: "center", fontSize: 42, fontWeight: 800, color: c.kind === "end" ? YELLOW : "#fff" }}>
+                  {neg ? "−" : ""}{fmt(Math.abs(val))}{d.unit ?? ""}
+                </div>
+                <div style={{ position: "absolute", left: x - 28, top: PLOT_H + 18, width: colW + 56, textAlign: "center", fontSize: 33, color: INK, whiteSpace: "pre-line", lineHeight: 1.4 }}>
+                  {c.label}
+                </div>
+              </FadeIn>
+            </div>
+          );
+        })}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const GroupedBarsDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const series = d.barSeries ?? [];
+  const groups = d.barGroups ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const allV = groups.flatMap((g) => g.values.map((v) => v ?? 0));
+  const axisMax = d.max ?? Math.max(10, Math.ceil(((allV.length ? Math.max(...allV) : 0) * 1.15) / 10) * 10);
+  const SERIES_COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d"];
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+      <div style={{ display: "flex", gap: 36, marginBottom: 26 }}>
+        {series.map((s, si) => (
+          <div key={si} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 30, height: 18, borderRadius: 4, background: SERIES_COLORS[si % SERIES_COLORS.length], display: "inline-block" }} />
+            <span style={{ fontSize: 36, color: INK }}>{s.name}</span>
+          </div>
+        ))}
+        {d.unit && <div style={{ fontSize: 34, color: "rgba(234,242,251,0.7)" }}>単位: {d.unit}</div>}
+      </div>
+      {groups.map((g, gi) => {
+        if (frame < atOf(g.atUnit)) return <div key={gi} style={{ height: series.length * 52 + 34 }} />;
+        return (
+          <FadeIn key={gi}>
+            <div style={{ display: "flex", marginBottom: 34 }}>
+              <div style={{ width: 480, flexShrink: 0, paddingRight: 26, fontSize: 42, fontWeight: 700, color: g.highlight ? YELLOW : "#fff", whiteSpace: "pre-line", lineHeight: 1.35, display: "flex", alignItems: "center" }}>
+                {g.label}
+              </div>
+              <div style={{ flex: 1 }}>
+                {series.map((s, si) => {
+                  const v = g.values[si];
+                  const pctW = v == null ? 0 : Math.max(0, Math.min(100, (v / axisMax) * 100));
+                  return (
+                    <div key={si} style={{ display: "flex", alignItems: "center", height: 40, marginBottom: si + 1 < series.length ? 12 : 0 }}>
+                      {v == null ? (
+                        <div style={{ fontSize: 36, color: "rgba(234,242,251,0.55)" }}>—（データなし）</div>
+                      ) : (
+                        <>
+                          <div style={{ width: `${pctW}%`, height: 40, borderRadius: "0 8px 8px 0", background: g.highlight ? `linear-gradient(90deg, #c79a00, ${YELLOW})` : SERIES_COLORS[si % SERIES_COLORS.length] }} />
+                          <div style={{ marginLeft: 16, fontSize: 38, fontWeight: 800, color: g.highlight ? YELLOW : "#fff" }}>{v}{d.unit ?? ""}</div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </FadeIn>
+        );
+      })}
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const WaffleDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const at = d.atUnit != null ? (scene.units[d.atUnit]?.startFrame ?? 0) : 0;
+  const total = d.waffleTotal ?? 0;
+  const value = d.waffleValue ?? 0;
+  const ratio = total > 0 ? value / total : 0;
+  const filled = Math.round(ratio * 100);
+  const percent = Math.round(ratio * 1000) / 10;
+  if (frame < at) return null;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
+      <FadeIn>
+        <div style={{ display: "flex", alignItems: "center", gap: 90 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(10, 46px)", gap: 7, flexShrink: 0 }}>
+            {Array.from({ length: 100 }, (_, idx) => {
+              const row = Math.floor(idx / 10);
+              const col = idx % 10;
+              const order = (9 - row) * 10 + col;
+              const on = order < filled;
+              return (
+                <div key={idx} style={{ width: 46, height: 46, borderRadius: 7, background: on ? "#3d8bdd" : "rgba(160,200,255,0.14)", border: `2px solid ${on ? "#7ab5e8" : "rgba(160,200,255,0.3)"}` }} />
+              );
+            })}
+          </div>
+          <div>
+            <div style={{ fontSize: 110, fontWeight: 800, color: "#fff", textShadow: OUTLINE, lineHeight: 1.2 }}>
+              {d.display ?? `${total}件中${value}件`}
+            </div>
+            <div style={{ fontSize: 72, fontWeight: 800, color: YELLOW, marginTop: 18 }}>{percent}%</div>
+            {d.label && <div style={{ fontSize: 44, fontWeight: 700, color: INK, marginTop: 16, whiteSpace: "pre-line", lineHeight: 1.45 }}>{d.label}</div>}
+          </div>
+        </div>
+        {d.note && (
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 36, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        )}
+      </FadeIn>
+    </div>
+  );
+};
+
+const ProfileCardDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const at = d.atUnit != null ? (scene.units[d.atUnit]?.startFrame ?? 0) : 0;
+  if (frame < at) return null;
+  return (
+    <div style={{ position: "absolute", left: 230, top: accent ? 265 : 225, width: 1460 }}>
+      <FadeIn>
+        {d.context && (
+          <div style={{ fontSize: 36, color: "#9fc6ff", marginBottom: 20, whiteSpace: "pre-line", lineHeight: 1.5 }}>{d.context}</div>
+        )}
+        <div style={{ ...boxStyle, padding: "44px 52px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
+            <div style={{ width: 150, height: 150, borderRadius: "50%", background: THEME, color: "#fff", fontSize: 64, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {d.initial ?? ""}
+            </div>
+            <div>
+              <div style={{ fontSize: 56, fontWeight: 800, color: "#fff", lineHeight: 1.3 }}>{d.name}</div>
+              {d.role && <div style={{ fontSize: 38, color: "#9fc6ff", marginTop: 8 }}>{d.role}</div>}
+              {d.affiliation && <div style={{ fontSize: 36, color: "rgba(234,242,251,0.8)", marginTop: 4 }}>{d.affiliation}</div>}
+            </div>
+          </div>
+          {(d.profilePoints ?? []).length > 0 && (
+            <div style={{ marginTop: 34, paddingTop: 30, borderTop: "2px solid rgba(160,200,255,0.3)" }}>
+              {(d.profilePoints ?? []).map((p, i) => (
+                <div key={i} style={{ display: "flex", gap: 16, marginBottom: i + 1 < (d.profilePoints ?? []).length ? 16 : 0 }}>
+                  <div style={{ width: 16, height: 16, background: YELLOW, borderRadius: 3, marginTop: 14, flexShrink: 0 }} />
+                  <div style={{ fontSize: 38, color: INK, lineHeight: 1.55, whiteSpace: "pre-line" }}>{p}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {d.note && (
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        )}
+      </FadeIn>
+    </div>
+  );
+};
+
+const RadarDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const axes = d.axes ?? [];
+  const series = d.radarSeries ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const max = d.max ?? 100;
+  const CX = 380;
+  const CY = 300;
+  const R = 195;
+  const n = Math.max(3, axes.length);
+  const pt = (i: number, ratio: number): [number, number] => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    return [CX + Math.cos(ang) * R * ratio, CY + Math.sin(ang) * R * ratio];
+  };
+  const COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d"];
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 245 : 205, width: 1600, display: "flex", gap: 60 }}>
+      <svg width={760} height={600} style={{ flexShrink: 0 }}>
+        {[0.25, 0.5, 0.75, 1].map((r) => (
+          <polygon key={r} points={axes.map((_, i) => pt(i, r).join(",")).join(" ")} fill="none" stroke="rgba(160,200,255,0.3)" strokeWidth={2} />
+        ))}
+        {axes.map((_, i) => {
+          const [x, y] = pt(i, 1);
+          return <line key={i} x1={CX} y1={CY} x2={x} y2={y} stroke="rgba(160,200,255,0.3)" strokeWidth={2} />;
+        })}
+        {series.map((s, si) => {
+          if (frame < atOf(s.atUnit)) return null;
+          const color = s.highlight ? YELLOW : COLORS[si % COLORS.length];
+          const points = axes.map((_, i) => pt(i, Math.max(0, Math.min(1, (s.values[i] ?? 0) / max))).join(",")).join(" ");
+          return (
+            <g key={si}>
+              <polygon points={points} fill={color} fillOpacity={0.3} stroke={color} strokeWidth={4} strokeLinejoin="round" />
+              {axes.map((_, i) => {
+                const [x, y] = pt(i, Math.max(0, Math.min(1, (s.values[i] ?? 0) / max)));
+                return <circle key={i} cx={x} cy={y} r={8} fill={color} stroke="#fff" strokeWidth={2} />;
+              })}
+            </g>
+          );
+        })}
+        {axes.map((a, i) => {
+          const [x, y] = pt(i, 1.25);
+          return (
+            <text key={i} x={x} y={y + 10} textAnchor="middle" fontSize={34} fontWeight={700} fill="#9fc6ff">{a}</text>
+          );
+        })}
+      </svg>
+      <div style={{ flex: 1, paddingTop: 60 }}>
+        {series.map((s, si) => (
+          <div key={si} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+            <span style={{ width: 30, height: 18, borderRadius: 4, background: s.highlight ? YELLOW : COLORS[si % COLORS.length], display: "inline-block" }} />
+            <span style={{ fontSize: 38, fontWeight: 700, color: "#fff" }}>{s.name}</span>
+          </div>
+        ))}
+        <div style={{ marginTop: 26 }}>
+          {axes.map((a, i) => (
+            <div key={i} style={{ display: "flex", fontSize: 36, color: INK, marginBottom: 10 }}>
+              <div style={{ width: 300, color: "#9fc6ff" }}>{a}</div>
+              <div style={{ fontWeight: 700 }}>{series.map((s) => s.values[i] ?? "—").join(" / ")}</div>
+            </div>
+          ))}
+        </div>
+        {d.note && (
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 26, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const QuadrantDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const pts = d.chartPoints ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const PLOT_W = 1020;
+  const PLOT_H = 540;
+  const LEFT = 290;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
+      {d.yLabel && <div style={{ fontSize: 38, fontWeight: 700, color: "#9fc6ff", marginLeft: LEFT }}>{d.yLabel}</div>}
+      <div style={{ position: "relative", height: PLOT_H, marginTop: 12 }}>
+        <div style={{ position: "absolute", left: LEFT, top: 0, width: PLOT_W, height: PLOT_H, border: "3px solid rgba(160,200,255,0.55)", background: "rgba(10,30,60,0.4)" }}>
+          <div style={{ position: "absolute", left: "50%", top: 0, height: "100%", borderLeft: "2px dashed rgba(234,242,251,0.4)" }} />
+          <div style={{ position: "absolute", top: "50%", left: 0, width: "100%", borderTop: "2px dashed rgba(234,242,251,0.4)" }} />
+          {d.quadrants?.topLeft && <div style={{ position: "absolute", left: 20, top: 14, fontSize: 34, color: "rgba(159,198,255,0.85)" }}>{d.quadrants.topLeft}</div>}
+          {d.quadrants?.topRight && <div style={{ position: "absolute", right: 20, top: 14, fontSize: 34, color: "rgba(159,198,255,0.85)" }}>{d.quadrants.topRight}</div>}
+          {d.quadrants?.bottomLeft && <div style={{ position: "absolute", left: 20, bottom: 14, fontSize: 34, color: "rgba(159,198,255,0.85)" }}>{d.quadrants.bottomLeft}</div>}
+          {d.quadrants?.bottomRight && <div style={{ position: "absolute", right: 20, bottom: 14, fontSize: 34, color: "rgba(159,198,255,0.85)" }}>{d.quadrants.bottomRight}</div>}
+          {pts.map((p, i) => {
+            if (frame < atOf(p.atUnit)) return null;
+            const x = (Math.max(0, Math.min(100, p.x)) / 100) * PLOT_W;
+            const y = (1 - Math.max(0, Math.min(100, p.y)) / 100) * PLOT_H;
+            return (
+              <div key={i} style={{ position: "absolute", left: x, top: y }}>
+                <div style={{ position: "absolute", left: -13, top: -13, width: 26, height: 26, borderRadius: "50%", background: p.highlight ? YELLOW : "#3d8bdd", border: "3px solid #fff" }} />
+                <div style={{ position: "absolute", ...(p.x > 60 ? { right: 24, textAlign: "right" as const } : { left: 24 }), top: -22, fontSize: 38, fontWeight: 700, color: p.highlight ? YELLOW : "#fff", whiteSpace: "nowrap" }}>{p.name}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {d.xLabel && <div style={{ fontSize: 36, color: "#9fc6ff", textAlign: "right", width: LEFT + PLOT_W }}>{d.xLabel}</div>}
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 14, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
+const VennDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
+  const frame = useCurrentFrame();
+  const d = scene.def.diagramData ?? {};
+  const sets = d.sets ?? [];
+  const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
+  const is3 = sets.length >= 3;
+  const centers: [number, number][] = is3 ? [[640, 225], [960, 225], [800, 420]] : [[615, 280], [985, 280]];
+  const R = is3 ? 225 : 250;
+  const COLORS = ["#3d8bdd", "#7ddb8a", "#c792ea"];
+  const itemDiv = (items: string[] | undefined, style: React.CSSProperties) =>
+    (items ?? []).length > 0 ? (
+      <div style={{ position: "absolute", textAlign: "center", ...style }}>
+        {(items ?? []).map((t, i) => (
+          <div key={i} style={{ fontSize: 36, color: "#fff", lineHeight: 1.5, whiteSpace: "pre-line" }}>{t}</div>
+        ))}
+      </div>
+    ) : null;
+  return (
+    <div style={{ position: "absolute", left: 160, top: accent ? 245 : 205, width: 1600 }}>
+      <div style={{ position: "relative", height: 580 }}>
+        <svg width={1600} height={580} style={{ position: "absolute", left: 0, top: 0 }}>
+          {sets.map((s, i) => {
+            if (frame < atOf(s.atUnit)) return null;
+            return <circle key={i} cx={centers[i][0]} cy={centers[i][1]} r={R} fill={COLORS[i % COLORS.length]} fillOpacity={0.4} stroke="#fff" strokeOpacity={0.6} strokeWidth={3} />;
+          })}
+        </svg>
+        {sets.map((s, i) => {
+          if (frame < atOf(s.atUnit)) return null;
+          const labelPos: React.CSSProperties = is3
+            ? [{ left: 340, top: 0, width: 340 }, { left: 920, top: 0, width: 340 }, { left: 630, top: 520, width: 340 }][i]
+            : [{ left: 245, top: 6, width: 340 }, { left: 1015, top: 6, width: 340 }][i];
+          return (
+            <div key={i} style={{ position: "absolute", textAlign: "center", fontSize: 44, fontWeight: 800, color: "#fff", ...labelPos }}>
+              {s.label}
+            </div>
+          );
+        })}
+        {!is3 && itemDiv(sets[0]?.items, { left: 325, top: 240, width: 360 })}
+        {!is3 && itemDiv(sets[1]?.items, { left: 915, top: 240, width: 360 })}
+        {is3 && itemDiv(sets[0]?.items, { left: 380, top: 190, width: 300 })}
+        {is3 && itemDiv(sets[1]?.items, { left: 920, top: 190, width: 300 })}
+        {is3 && itemDiv(sets[2]?.items, { left: 650, top: 450, width: 300 })}
+        {d.overlap && (
+          <div style={{ position: "absolute", left: 600, top: is3 ? 268 : 218, width: 400, textAlign: "center" }}>
+            {d.overlap.label && <div style={{ fontSize: 38, fontWeight: 800, color: YELLOW, lineHeight: 1.4 }}>{d.overlap.label}</div>}
+            {(d.overlap.items ?? []).map((t, i) => (
+              <div key={i} style={{ fontSize: 34, color: "#fff", lineHeight: 1.5 }}>{t}</div>
+            ))}
+          </div>
+        )}
+      </div>
+      {d.note && (
+        <FadeIn>
+          <div style={{ fontSize: 36, color: "rgba(234,242,251,0.85)", marginTop: 10, whiteSpace: "pre-line", lineHeight: 1.55 }}>{d.note}</div>
+        </FadeIn>
+      )}
+    </div>
+  );
+};
+
 /* ---------------- カード類（文案は production.json） ---------------- */
 
 const HookScene: React.FC<{ scene: Scene }> = ({ scene }) => {
@@ -683,6 +2333,33 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
       {def.diagram === "redteam" && <RedTeamDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "split" && <SplitDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "summary-points" && <SummaryDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "hero-number" && <HeroNumberDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "numbers-table" && <NumbersTableDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "steps" && <StepsDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "items" && <ItemsDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "quote" && <QuoteDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "benchmark-table" && <BenchmarkTableDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "benchmark-chart" && <BenchmarkChartDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "code-block" && <CodeBlockDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "delta" && <DeltaDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "stat-grid" && <StatGridDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "spec-list" && <SpecListDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "changelog" && <ChangelogDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "ranking-list" && <RankingListDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "trend-chart" && <TrendChartDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "post-card" && <PostCardDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "relation-map" && <RelationMapDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "scatter" && <ScatterDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "delta-multi" && <DeltaMultiDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "map" && <MapDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "share-stack" && <ShareStackDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "waterfall" && <WaterfallDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "grouped-bars" && <GroupedBarsDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "waffle" && <WaffleDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "profile-card" && <ProfileCardDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "radar" && <RadarDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "quadrant" && <QuadrantDiagram scene={scene} accent={!!def.accentTelop} />}
+      {def.diagram === "venn" && <VennDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.accentTelop && frame < accentUntil && (
         // 強調テロップの帯域は肩テロップ直下（top 140〜約250）に固定する。
         // 旧配置（top 190 / 110px）は図解の先頭要素と重なったため、この帯に移し、
