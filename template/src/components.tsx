@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Easing,
   interpolate,
   spring,
   useCurrentFrame,
@@ -168,6 +169,25 @@ const boxStyle: React.CSSProperties = {
   borderRadius: 16,
   background: "rgba(10,30,60,0.75)",
   color: INK,
+};
+
+/* 文字幅の概算（レイアウト計算用）。全角=フォントサイズ、半角=その halfRatio 倍。
+   既定の 0.52 は layout_check.py の見積もりと同じ係数。実フォントの太字数字は
+   これより広い（stat-grid の実測で約0.57）ため、用途により呼び出し側で変える。 */
+const estTextW = (text: string, fs: number, halfRatio = 0.52): number => {
+  let w = 0;
+  for (const ch of text)
+    w += ch === "−" || ch === "-" ? fs * halfRatio : (ch.codePointAt(0) ?? 0) > 0xff ? fs : fs * halfRatio;
+  return w;
+};
+
+/* 明示改行（\n）＋自動折り返しを見込んだ行数の概算 */
+const estLines = (text: string | null | undefined, fs: number, innerW: number): number => {
+  if (text == null) return 0;
+  let lines = 0;
+  for (const ln of text.split("\n"))
+    lines += Math.max(1, Math.ceil(estTextW(ln, fs) / Math.max(1, innerW)));
+  return lines;
 };
 
 const SandboxDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
@@ -354,14 +374,18 @@ const RedTeamDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, a
 
 const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, accent }) => {
   const d = scene.def.diagramData ?? {};
-  const left = d.left ?? { title: "", mark: "✕", text: "" };
-  const right = d.right ?? { title: "", mark: "○", text: "" };
+  // マーク（✕/○）はデータに書かれている場合だけ描く。プログラムが既定の
+  // マークを補うと、脚本が外したはずの記号が画面に出てしまう（2026-11-07 修正。
+  // ラボ セット5 S3 で、データに無い ✕/○ が描かれた実例を受けたもの）
+  const left = d.left ?? { title: "", text: "" };
+  const right = d.right ?? { title: "", text: "" };
   return (
     <div style={{ position: "absolute", left: 210, top: accent ? 265 : 225, width: 1500, display: "flex", alignItems: "stretch", gap: 44 }}>
       <FadeIn>
         <div style={{ ...boxStyle, width: 700, height: "100%", boxSizing: "border-box", padding: "34px 38px", opacity: 0.85 }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
-            {left.title} <span style={{ color: "#ff7b7b", fontSize: 56 }}>{left.mark ?? "✕"}</span>
+            {left.title}
+            {left.mark ? <span style={{ color: "#ff7b7b", fontSize: 56 }}> {left.mark}</span> : null}
           </div>
           <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{left.text ?? ""}</div>
         </div>
@@ -369,7 +393,8 @@ const SplitDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, acc
       <FadeIn>
         <div style={{ ...boxStyle, width: 700, height: "100%", boxSizing: "border-box", padding: "34px 38px", borderColor: THEME, background: "rgba(15,98,180,0.28)" }}>
           <div style={{ fontSize: 46, fontWeight: 700, color: "#fff", whiteSpace: "pre-line" }}>
-            {right.title} <span style={{ color: "#7ddb8a", fontSize: 56 }}>{right.mark ?? "○"}</span>
+            {right.title}
+            {right.mark ? <span style={{ color: "#7ddb8a", fontSize: 56 }}> {right.mark}</span> : null}
           </div>
           <div style={{ fontSize: 38, color: INK, marginTop: 14, lineHeight: 1.55, whiteSpace: "pre-line" }}>{right.text ?? ""}</div>
         </div>
@@ -995,6 +1020,15 @@ const StatGridDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, 
   const stats = d.stats ?? [];
   const atOf = (u?: number) => (u != null ? (scene.units[u]?.startFrame ?? 0) : 0);
   const grid2 = stats.length === 4;
+  // 値がセルの内幅に1行で収まるよう、全セル共通でフォントサイズを自動調整する
+  // （収まる場合は従来どおり 72）。実フォントの太字数字は layout_check の見積もり
+  // （半角0.52倍）より広く、見積もりでは収まる値が実描画で単語の途中で改行した
+  // （2026-11-07 修正。ラボ セット2 S2「169.56億ド/ル」の実例）。幅の概算は
+  // 実測に合わせ半角0.57倍で数える。下限は 54（それでも収まらない場合は従来どおり改行）。
+  const cellW = grid2 ? (1600 - 30) / 2 : (1600 - 30 * Math.max(0, stats.length - 1)) / Math.max(1, stats.length);
+  const innerW = cellW - 68;
+  const maxValW = Math.max(0, ...stats.flatMap((s) => String(s.value ?? "").split("\n").map((ln) => estTextW(ln, 72, 0.57))));
+  const valueFs = maxValW > innerW ? Math.max(54, Math.floor(72 * (innerW / maxValW))) : 72;
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 265 : 230, width: 1600 }}>
       <div
@@ -1009,7 +1043,7 @@ const StatGridDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene, 
           return visible ? (
             <FadeIn key={i} style={grid2 ? {} : { flex: 1, display: "flex" }}>
               <div style={{ ...boxStyle, flex: 1, boxSizing: "border-box", padding: "32px 34px", textAlign: "center" }}>
-                <div style={{ fontSize: 72, fontWeight: 800, color: "#fff", lineHeight: 1.25, whiteSpace: "pre-line" }}>{s.value}</div>
+                <div style={{ fontSize: valueFs, fontWeight: 800, color: "#fff", lineHeight: 1.25, whiteSpace: "pre-line" }}>{s.value}</div>
                 <div style={{ fontSize: 36, color: INK, marginTop: 12, whiteSpace: "pre-line", lineHeight: 1.5 }}>{s.label}</div>
               </div>
             </FadeIn>
@@ -1228,6 +1262,12 @@ const TrendChartDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene
   const COLORS = ["#3d8bdd", "#7ddb8a", "#ffd83d"];
   const labels = series[0]?.points.map((p) => p.label) ?? [];
   const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10));
+  // 端のラベルが SVG の端（幅1600）で切れないよう、中心位置を内側に寄せる
+  // （2026-11-07 修正。ラボ セット2 S7 の右端ラベル「2026年Q3」が切れた実例）
+  const clampCx = (cx: number, t: string, fs: number) => {
+    const half = estTextW(t, fs, 0.57) / 2 + 4;
+    return Math.min(1600 - half, Math.max(half, cx));
+  };
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
       {(d.label || d.unit) && (
@@ -1261,7 +1301,7 @@ const TrendChartDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene
           <text x={LEFT - 16} y={yOf(0) + 8} textAnchor="end" fontSize={32} fill="#9fc6ff">0</text>
         )}
         {labels.map((lb, i) => (
-          <text key={i} x={xOf(i)} y={TOP + PLOT_H + 52} textAnchor="middle" fontSize={36} fill="#eaf2fb">{lb}</text>
+          <text key={i} x={clampCx(xOf(i), lb, 36)} y={TOP + PLOT_H + 52} textAnchor="middle" fontSize={36} fill="#eaf2fb">{lb}</text>
         ))}
         {series.map((s, si) => {
           const color = s.highlight ? YELLOW : COLORS[si % COLORS.length];
@@ -1282,7 +1322,7 @@ const TrendChartDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene
                   <g key={`p${i}`}>
                     <circle cx={xOf(i)} cy={yOf(p.value)} r={13} fill={color} stroke="#fff" strokeWidth={3} />
                     {showLabel && (
-                      <text x={xOf(i)} y={yOf(p.value) - TOP < PLOT_H * 0.15 ? yOf(p.value) + 56 : yOf(p.value) - 28} textAnchor="middle" fontSize={40} fontWeight={700} fill="#fff">
+                      <text x={clampCx(xOf(i), fmt(p.value), 40)} y={yOf(p.value) - TOP < PLOT_H * 0.15 ? yOf(p.value) + 56 : yOf(p.value) - 28} textAnchor="middle" fontSize={40} fontWeight={700} fill="#fff">
                         {fmt(p.value)}
                       </text>
                     )}
@@ -1348,28 +1388,40 @@ const RelationMapDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scen
       {x && <div style={{ fontSize: 34, color: INK, marginTop: 8, whiteSpace: "pre-line", lineHeight: 1.5 }}>{x}</div>}
     </div>
   );
+  // ノード箱の高さの見積もり（折り返し行数から）。箱は中身で高さが変わるため、
+  // 配置を固定値で決めると、見出しが単語途中で割れたり、箱の下の link ラベルが
+  // 後続の note に重なったりする。見積もりで配置を追随させる（2026-11-07 修正。
+  // ラボ セット4 S7 の実例を受けたもの）
+  const boxH = (title: string, text: string | undefined, titleFs: number, innerW: number) =>
+    48 + estLines(title, titleFs, innerW) * titleFs * 1.35 + (text ? 8 + estLines(text, 34, innerW) * 34 * 1.5 : 0);
   if ((d.mode ?? "hub") === "tree") {
     const n = Math.max(1, nodes.length);
     const childW = (1600 - (n - 1) * 40) / n;
     const centers = nodes.map((_, i) => childW * i + 40 * i + childW / 2);
+    const rootW = 860;
+    const rootH = boxH(d.root?.title ?? "", d.root?.text, 46, rootW - 56);
+    const hlineY = rootH + 48;
+    const childTop = hlineY + 48;
+    const maxChildH = Math.max(0, ...nodes.map((nd) => boxH(nd.title, nd.text, 40, childW - 56)));
+    const treeH = childTop + maxChildH + (nodes.some((nd) => nd.link) ? 58 : 0) + 8;
     return (
       <div style={{ position: "absolute", left: 160, top: accent ? 255 : 215, width: 1600 }}>
-        <div style={{ position: "relative", height: 520 }}>
-          <svg width={1600} height={520} style={{ position: "absolute", left: 0, top: 0 }}>
-            <line x1={800} y1={150} x2={800} y2={210} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+        <div style={{ position: "relative", height: treeH }}>
+          <svg width={1600} height={childTop} style={{ position: "absolute", left: 0, top: 0 }}>
+            <line x1={800} y1={rootH} x2={800} y2={hlineY} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
             {centers.map((cx, i) => (
               <g key={i}>
-                <line x1={Math.min(800, cx)} y1={210} x2={Math.max(800, cx)} y2={210} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
-                <line x1={cx} y1={210} x2={cx} y2={268} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+                <line x1={Math.min(800, cx)} y1={hlineY} x2={Math.max(800, cx)} y2={hlineY} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
+                <line x1={cx} y1={hlineY} x2={cx} y2={childTop} stroke="rgba(160,200,255,0.65)" strokeWidth={3} />
               </g>
             ))}
           </svg>
-          <div style={{ position: "absolute", left: 500, top: 0, width: 600, height: 150, display: "flex" }}>
+          <div style={{ position: "absolute", left: (1600 - rootW) / 2, top: 0, width: rootW, height: rootH, display: "flex" }}>
             <div style={{ flex: 1 }}>{nodeBox(d.root?.title ?? "", d.root?.text, true)}</div>
           </div>
           {nodes.map((nd, i) =>
             frame >= atOf(nd.atUnit) ? (
-              <div key={i} style={{ position: "absolute", left: childW * i + 40 * i, top: 268, width: childW }}>
+              <div key={i} style={{ position: "absolute", left: childW * i + 40 * i, top: childTop, width: childW }}>
                 <FadeIn>{nodeBox(nd.title, nd.text)}</FadeIn>
                 {nd.link && (
                   <div style={{ textAlign: "center", fontSize: 32, color: "#9fc6ff", marginTop: 10 }}>{nd.link}</div>
@@ -1400,9 +1452,13 @@ const RelationMapDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scen
     const idxInCol = col.indexOf(nd);
     return { nd, side, cx: side === "L" ? 210 : 1390, cy: colY(col.length, idxInCol) };
   });
+  // hub: ノード箱（＋link ラベル）がコンテナの下端を超えて note に重ならないよう、
+  // 最も低いノードの底に合わせてコンテナの高さを確保する（2026-11-07 修正）
+  const hubH =
+    Math.max(580, ...placed.map((p) => p.cy - 70 + boxH(p.nd.title, p.nd.text, 40, 420 - 56) + (p.nd.link ? 58 : 0))) + 8;
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 245 : 205, width: 1600 }}>
-      <div style={{ position: "relative", height: 580 }}>
+      <div style={{ position: "relative", height: hubH }}>
         <svg width={1600} height={580} style={{ position: "absolute", left: 0, top: 0 }}>
           {placed.map((p, i) =>
             frame >= atOf(p.nd.atUnit) ? (
@@ -1747,6 +1803,20 @@ const WaterfallDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene,
   const totalW = colW * n + gap * (n - 1);
   const left0 = (1600 - totalW) / 2;
   const fmt = (v: number) => v.toLocaleString();
+  // 到達点ラベル（ステップ列の累計表示）の文面と大きさ。列幅に収まらない場合は
+  // 折り返さずフォントを落として1行に収める
+  const cumLabel = (to: number) => {
+    const txt = `到達 ${to < 0 ? "−" : ""}${fmt(Math.abs(to))}${d.unit ?? ""}`;
+    const w = estTextW(txt, 30, 0.57);
+    const fs = w > colW + 56 ? Math.max(20, Math.floor(((30 * (colW + 56)) / w) * 0.95)) : 30;
+    return { txt, fs };
+  };
+  // 値ラベル（増減値）も同様に、列幅に収まらない場合はフォントを落として1行に収める
+  // （単位付きの長い値が「54.01億ド/ル」と割れたラボ セット2 v1 の実例を受けたもの）
+  const valFs = (txt: string) => {
+    const w = estTextW(txt, 42, 0.57);
+    return w > colW + 40 ? Math.max(24, Math.floor(((42 * (colW + 40)) / w) * 0.95)) : 42;
+  };
   const lastStepAt = steps.length ? atOf(steps[steps.length - 1].atUnit) : 0;
   return (
     <div style={{ position: "absolute", left: 160, top: accent ? 265 : 225, width: 1600 }}>
@@ -1770,9 +1840,19 @@ const WaterfallDiagram: React.FC<{ scene: Scene; accent?: boolean }> = ({ scene,
               )}
               <FadeIn>
                 <div style={{ position: "absolute", left: x, top, width: colW, height: h, background: fill, borderRadius: 8, border: c.kind === "end" ? `3px solid ${YELLOW}` : "3px solid rgba(160,200,255,0.5)" }} />
-                <div style={{ position: "absolute", left: x - 20, top: top - 66, width: colW + 40, textAlign: "center", fontSize: 42, fontWeight: 800, color: c.kind === "end" ? YELLOW : "#fff" }}>
+                <div style={{ position: "absolute", left: x - 20, top: top - 66, width: colW + 40, textAlign: "center", fontSize: valFs(`${neg ? "−" : ""}${fmt(Math.abs(val))}${d.unit ?? ""}`), fontWeight: 800, color: c.kind === "end" ? YELLOW : "#fff", whiteSpace: "nowrap" }}>
                   {neg ? "−" : ""}{fmt(Math.abs(val))}{d.unit ?? ""}
                 </div>
+                {/* 到達点ラベル: 各ステップの到達水準（累計）を必ず画面に残す。
+                    これが無いと、実績の到達値が棒の幾何位置としてしか存在せず、
+                    ナレーションの数字と画面の数字が一致しない（2026-11-07 追加。
+                    ラボ セット2 で実績 −5.67 が無ラベルだった実例を受けたもの）。
+                    位置は棒の下端のすぐ下（増減どちらでも到達側に寄る） */}
+                {c.kind === "step" && (
+                  <div style={{ position: "absolute", left: x - 28, top: top + h + 8, width: colW + 56, textAlign: "center", fontSize: cumLabel(c.to).fs, fontWeight: 700, color: "#9fc6ff", whiteSpace: "nowrap" }}>
+                    {cumLabel(c.to).txt}
+                  </div>
+                )}
                 <div style={{ position: "absolute", left: x - 28, top: PLOT_H + 18, width: colW + 56, textAlign: "center", fontSize: 33, color: INK, whiteSpace: "pre-line", lineHeight: 1.4 }}>
                   {c.label}
                 </div>
@@ -2180,12 +2260,27 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
   if (layout === "sources") {
     // 出典のみのエンドカード: 上側は YouTube のエンドスクリーン（次のおすすめ等）が
     // 重なる場所として空けておき、出典は下側に置く（2026-10-26 田中さんの指定）。
+    // 出典の文字量が多いと下端（1080）をはみ出して URL が見切れるため、収まる範囲で
+    // フォントを段階的に小さくする（2026-11-07 追加。ラボ セット5 の実例を受けたもの）。
+    // 上端 620 の指定は変えず、縮小だけで収める。
+    const srcAvail = 1080 - 620 - 44; // 見出し込みで使える高さ
+    const srcHeadH = 40 + 16;
+    let srcFs = 33;
+    let srcLh = 1.75;
+    for (const [fs, lh] of [[33, 1.75], [30, 1.7], [27, 1.62], [24, 1.55]] as [number, number][]) {
+      srcFs = fs;
+      srcLh = lh;
+      const lines =
+        sources.reduce((a, s) => a + estLines(s.label, fs, 1500) + estLines(s.url || " ", fs, 1500), 0) +
+        Math.max(0, sources.length - 1);
+      if (srcHeadH + lines * fs * lh <= srcAvail) break;
+    }
     return (
       <AbsoluteFill>
         <div style={{ position: "absolute", left: 210, top: 620, width: 1500 }}>
           <FadeIn delay={10}>
             <div style={{ fontSize: 40, fontWeight: 700, color: "#9fc6ff" }}>出典</div>
-            <div style={{ fontSize: 33, color: "rgba(234,242,251,0.92)", lineHeight: 1.75, marginTop: 16 }}>
+            <div style={{ fontSize: srcFs, color: "rgba(234,242,251,0.92)", lineHeight: srcLh, marginTop: 16 }}>
               {sources.map((s, i) => (
                 <React.Fragment key={i}>
                   {i > 0 && <br />}
@@ -2320,13 +2415,68 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
   if (def.type === "end") return <EndCard def={def} />;
   const frame = useCurrentFrame();
   // 見出しの表示秒数はデータ（headlineSec、省略時は4.2）が決める
-  const showHeadline = def.headline && frame < (def.headlineSec ?? 4.2) * 30;
+  const headlineSec = def.headlineSec ?? 4.2;
+  const showHeadline = def.headline && frame < headlineSec * 30;
+  // バリアントB＋アニメーション（試作）: 見出しバンド（bottom:260、不透過）は
+  // 図解の下部を覆い、単純な上端基準の縮小では図解の上端が肩テロップに詰まる。
+  // そこで見出し表示中は、図解レイヤー全体（全高1080）を「安全矩形」へ写像する:
+  //   上端 = 肩の下端 + 余白。肩は top:54・padding 12px・fontSize 48 で下端は
+  //          y=147（実測一致）。余白 9px を取り y=156 から。
+  //   下端 = 見出しバンドの上端。バンドは bottom:260・padding 14/18・fontSize 96
+  //          の1行で高さ約170、上端は y=649（実測一致。従来Bの収納先と同じ）。
+  // 写像は scale（矩形の高さ/1080）と下方向オフセット（矩形の上端）の組で、
+  // 図解のどの部分も肩・バンドのどちらにも被らない。見出しが消えたら、約0.5秒
+  // かけて scale とオフセットの両方を ease-out で (1, 0) へ滑らかに戻し、
+  // 1フレーム切り替えの「ポップ」を消す。
+  // 遷移の開始点は見出し表示の終了（データ側 headlineSec）に追随する機構で、
+  // 秒数そのものはデータが決める。遷移時間はプログラム側の表現機構の定数。
+  const DIAGRAM_SAFE_TOP = 156; // 肩の下端147 + 余白9
+  const DIAGRAM_SAFE_BOTTOM = 649; // 見出しバンド（1行時）の上端
+  const DIAGRAM_SAFE_SCALE = (DIAGRAM_SAFE_BOTTOM - DIAGRAM_SAFE_TOP) / 1080; // ≒0.457
+  const DIAGRAM_RESTORE_FRAMES = 15; // 約0.5秒（30fps 前提。見出し計算と同じ規約）
+  const headlineEndFrame = headlineSec * 30;
+  let diagramScale = 1;
+  let diagramOffsetY = 0;
+  if (def.headline) {
+    if (frame < headlineEndFrame) {
+      diagramScale = DIAGRAM_SAFE_SCALE;
+      diagramOffsetY = DIAGRAM_SAFE_TOP;
+    } else if (frame < headlineEndFrame + DIAGRAM_RESTORE_FRAMES) {
+      const easeOpts = {
+        easing: Easing.out(Easing.cubic),
+        extrapolateLeft: "clamp" as const,
+        extrapolateRight: "clamp" as const,
+      };
+      diagramScale = interpolate(
+        frame,
+        [headlineEndFrame, headlineEndFrame + DIAGRAM_RESTORE_FRAMES],
+        [DIAGRAM_SAFE_SCALE, 1],
+        easeOpts
+      );
+      diagramOffsetY = interpolate(
+        frame,
+        [headlineEndFrame, headlineEndFrame + DIAGRAM_RESTORE_FRAMES],
+        [DIAGRAM_SAFE_TOP, 0],
+        easeOpts
+      );
+    }
+  }
   // 強調テロップの表示時間もデータ（accentTelop.sec、省略時は1文目+20フレーム）
   const accentUntil =
     def.accentTelop?.sec != null ? def.accentTelop.sec * 30 : (scene.units[0]?.durFrames ?? 0) + 20;
   return (
     <AbsoluteFill>
       {def.shoulder && <Shoulder text={def.shoulder} />}
+      {/* 図解レイヤー: 見出しバンドとの分離（バリアントB）のためラッパーで拡縮・移動する。
+          肩テロップ・強調テロップ・用語解説・出典クレジットは対象外（従来位置のまま）。 */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          transform: `translateY(${diagramOffsetY}px) scale(${diagramScale})`,
+          transformOrigin: "50% 0%",
+        }}
+      >
       {def.type === "hook" && <HookScene scene={scene} />}
       {def.diagram === "sandbox" && <SandboxDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "timeline" && <TimelineDiagram scene={scene} />}
@@ -2360,6 +2510,7 @@ export const SceneView: React.FC<{ scene: Scene }> = ({ scene }) => {
       {def.diagram === "radar" && <RadarDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "quadrant" && <QuadrantDiagram scene={scene} accent={!!def.accentTelop} />}
       {def.diagram === "venn" && <VennDiagram scene={scene} accent={!!def.accentTelop} />}
+      </div>
       {def.accentTelop && frame < accentUntil && (
         // 強調テロップの帯域は肩テロップ直下（top 140〜約250）に固定する。
         // 旧配置（top 190 / 110px）は図解の先頭要素と重なったため、この帯に移し、

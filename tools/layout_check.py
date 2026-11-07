@@ -4,6 +4,15 @@ summary-points の縦・横のはみ出しと見出しの横幅を、テンプ�
 （1920x1080、SummaryDiagram / Headline の定数）から見積もって警告する。
 見積もりは警告用途の近似で、正確な描画幅ではない。はみ出す脚本は
 チェックで弾き、対応はページ分け（pageBreakBefore）で行う。
+
+2026-11-07 追加（ラボ KNOWHOW「プログラム側の残件」項目8・9）:
+- 項目9: diagram を宣言したシーンで diagramData が無い/主要データが空の
+  場合は「チェックできていない」旨を警告する（従来は空リストに対して
+  何も言わず素通りし、「警告0件＝チェック済み」と誤認された）。
+  あわせてスクリプト実行時の出力に対象シーン数と図解種別の内訳を併記する。
+- 項目8: note（fontSize 36・whiteSpace "pre-line"）の各行の推定幅が
+  図解ごとの note 描画幅を超える場合、自動折り返しで単語の途中で
+  割れる見積もりとして警告する。
 """
 import json
 import sys
@@ -19,9 +28,142 @@ def text_width(s: str, fs: float) -> float:
     return w
 
 
+# --- 項目9: 図解種別ごとの「主要データ」定義 ---
+# required は必須フィールド（すべて非空でないと図解が成立しないもの）、
+# any_of はそのうち最低1つが非空ならよいフィールド群。
+_PRIMARY_REQUIRED: dict[str, tuple[str, ...]] = {
+    "summary-points": ("points",),
+    "timeline": ("events",),
+    "numbers-table": ("columns", "rows"),
+    "benchmark-table": ("columns", "benchRows"),
+    "benchmark-chart": ("bars",),
+    "steps": ("steps",),
+    "items": ("items",),
+    "quote": ("quote",),
+    "code-block": ("lines",),
+    "hero-number": ("value",),
+    "stat-grid": ("stats",),
+    "spec-list": ("specs",),
+    "changelog": ("changes",),
+    "ranking-list": ("entries",),
+    "trend-chart": ("series",),
+    "post-card": ("text",),
+    "scatter": ("chartPoints",),
+    "delta-multi": ("slopeItems",),
+    "map": ("mapPoints",),
+    "share-stack": ("stackBars",),
+    "grouped-bars": ("barSeries", "barGroups"),
+    "radar": ("axes", "radarSeries"),
+    "quadrant": ("chartPoints",),
+    "venn": ("sets",),
+}
+_PRIMARY_ANY_OF: dict[str, tuple[str, ...]] = {
+    # sandbox / redteam は components.tsx 側に既定文言があり、主要フィールドの
+    # どれか1つでも入っていれば図解として描画される
+    "sandbox": ("title", "circle", "note", "step2Title", "step2Text", "step3Badge"),
+    "redteam": ("attackerTitle", "attackerText", "middleTitle", "middleText", "resultText"),
+    "split": ("left", "right"),
+    "delta": ("before", "after"),
+    # waterfall は開始/増減/終了が分かれており、どれか1つでもあれば描画される
+    "waterfall": ("wfStart", "wfSteps", "wfEnd"),
+    "profile-card": ("name", "profilePoints"),
+}
+
+
+def _field_empty(v) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, (list, tuple, dict, str)):
+        return len(v) == 0
+    return False  # 数値等は存在自体がデータ
+
+
+def _empty_diagram_warn(scene: dict) -> str | None:
+    """diagram を宣言したのに diagramData が無い/主要データが空なら、
+    「チェックできていない」旨の警告を返す（項目9）。"""
+    kind = scene.get("diagram")
+    if not kind:
+        return None
+    sid = scene.get("id", "?")
+    raw = scene.get("diagramData")
+    if not isinstance(raw, dict) or not raw:
+        return (
+            f"{sid}: diagram（{kind}）を宣言しているが diagramData が無い/空のため、"
+            "図解をチェックできていない"
+        )
+    d = raw
+    missing: list[str] = []
+    if kind == "relation-map":
+        # tree は root、hub は center が起点。どちらも nodes が本体
+        if _field_empty(d.get("nodes")):
+            missing.append("nodes")
+        anchor = "root" if (d.get("mode") or "hub") == "tree" else "center"
+        if _field_empty(d.get(anchor)):
+            missing.append(anchor)
+    elif kind == "waffle":
+        # 本体は waffleTotal/waffleValue から割合を計算する（total が無いと成立しない）
+        if d.get("waffleTotal") is None:
+            missing.append("waffleTotal")
+    elif kind in _PRIMARY_REQUIRED:
+        missing = [f for f in _PRIMARY_REQUIRED[kind] if _field_empty(d.get(f))]
+        if kind == "trend-chart" and not missing:
+            series = [s for s in (d.get("series") or []) if isinstance(s, dict)]
+            if not any(s.get("points") for s in series):
+                missing = ["series.points"]
+    elif kind in _PRIMARY_ANY_OF:
+        if all(_field_empty(d.get(f)) for f in _PRIMARY_ANY_OF[kind]):
+            missing = list(_PRIMARY_ANY_OF[kind])
+    if missing:
+        return (
+            f"{sid}: diagram（{kind}）の主要データ（{'/'.join(missing)}）が空のため、"
+            "図解をチェックできていない"
+        )
+    return None
+
+
+# --- 項目8: note の描画幅（components.tsx の各 Diagram のコンテナ幅から） ---
+# note は fontSize 36・whiteSpace "pre-line" で描画され、\n を入れていない行が
+# この幅を超えるとブラウザが自動折り返しし、単語の途中で割れる。
+# 大半は外側コンテナ幅 1600 のまま。例外:
+# - post-card: note はカード（padding あり）の外・下に描かれるので外側の 1240
+# - profile-card: 外側コンテナ幅が 1460
+# - radar: note は右カラム内（1600 - svg 760 - gap 60 = 780）
+# 対象外: split は note を描画しない。sandbox の note は箱内の別要素
+# （fontSize 38・位置固定）で上記形式ではない。steps/items/quote/code-block は
+# note 自体を描画しない。summary-points は note を持たない。
+_NOTE_WIDTHS: dict[str, int] = {
+    "hero-number": 1600,
+    "numbers-table": 1600,
+    "benchmark-table": 1600,
+    "benchmark-chart": 1600,
+    "delta": 1600,
+    "stat-grid": 1600,
+    "spec-list": 1600,
+    "changelog": 1600,
+    "ranking-list": 1600,
+    "trend-chart": 1600,
+    "post-card": 1240,
+    "relation-map": 1600,
+    "scatter": 1600,
+    "delta-multi": 1600,
+    "map": 1600,
+    "share-stack": 1600,
+    "waterfall": 1600,
+    "grouped-bars": 1600,
+    "waffle": 1600,
+    "profile-card": 1460,
+    "radar": 780,
+    "quadrant": 1600,
+    "venn": 1600,
+}
+
+
 def check_scene(scene: dict) -> list[str]:
     warns: list[str] = []
     sid = scene.get("id", "?")
+    ew = _empty_diagram_warn(scene)
+    if ew:
+        warns.append(ew)
     if scene.get("diagram") == "summary-points":
         full = bool(scene.get("pointsFull"))
         fs = 66 if full else 46
@@ -526,6 +668,19 @@ def check_scene(scene: dict) -> list[str]:
         if top > 1080:
             warns.append(f"{sid}: venn が縦にはみ出す見積もり（約{int(top)}px > 1080px）")
 
+    # --- 項目8: note の自動折り返し割れ ---
+    # 縦の行数だけでは分からない横幅超過を見る。各行（\n 区切り）の推定幅が
+    # その図解の note 描画幅を超えたら、ブラウザの自動折り返しで割れる。
+    nw = _NOTE_WIDTHS.get(kind)
+    if nw and d.get("note"):
+        for ln in str(d["note"]).split("\n"):
+            w = text_width(ln, 36)
+            if w > nw:
+                warns.append(
+                    f"{sid}: note の行が描画幅を超え、自動折り返しで割れる見積もり"
+                    f"（約{int(w)}px > {nw}px）: {ln[:24]}"
+                )
+
     hl = scene.get("headline")
     if hl:
         w = text_width(str(hl), 96)
@@ -547,4 +702,16 @@ if __name__ == "__main__":
     for w in ws:
         print("⚠", w)
     print(f"レイアウトチェック: 警告 {len(ws)} 件")
+    # 項目9(b): 「警告0件」が本当にチェック済みか分かるよう、対象シーン数と
+    # 図解種別の内訳（チェック対象の実態）を併記する
+    doc = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    scenes = doc.get("scenes", [])
+    kinds: dict[str, int] = {}
+    for s in scenes:
+        k = s.get("diagram")
+        if k:
+            kinds[k] = kinds.get(k, 0) + 1
+    print(f"対象シーン: 全 {len(scenes)} 件（図解あり {sum(kinds.values())} 件）")
+    for k in sorted(kinds):
+        print(f"  図解内訳: {k} × {kinds[k]}")
     sys.exit(1 if ws else 0)

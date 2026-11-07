@@ -17,6 +17,8 @@ HTML 資料を作る。動画を再生しなくても、画面の文字列とナ
 """
 import argparse
 import base64
+import fcntl
+import hashlib
 import html
 import json
 import math
@@ -368,21 +370,36 @@ def main() -> int:
         return 1
 
     starts, total_frames = compute_starts(production, timing)
+    # フレームキャッシュのキーに出力名だけでなく production/timing の内容ハッシュを
+    # 含める（出力名＋シーンID＋時刻だけだと別トピックのフレームが再利用され、
+    # 絵コンテに混入する。同じ内容の再実行では従来どおりキャッシュが効く）
+    digest = hashlib.sha256(
+        json.dumps({"production": production, "timing": timing},
+                   ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:12]
     frames_dir = Path(args.keep_frames) if args.keep_frames else Path(args.out_html).with_suffix("")
     frames_dir = frames_dir.with_name(frames_dir.name + "-frames")
+    frames_dir = frames_dir.with_name(f"{frames_dir.name}-{digest}")
     frames_dir.mkdir(parents=True, exist_ok=True)
 
-    # template/src に production/timing を配置（既存は退避して復元）
+    # 共有 template/src の production.json / timing.json は実行中に書き換えるため、
+    # 同じ template を使う並行実行と交錯しないよう、template ごとの排他ロックを
+    # 取り、配置から撮影・復元までを臨界区間にする（ロック待ちでよい）
     src = template / "src"
+    lock_file = open(template / ".storyboard.lock", "a+")
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
     backups = {}
-    for name, data in (("production.json", production), ("timing.json", timing)):
-        f = src / name
-        if f.exists():
-            backups[name] = f.read_bytes()
-        f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-
-    rendered = {}
+    existed = {}
     try:
+        # template/src に production/timing を配置（既存は退避して復元）
+        for name, data in (("production.json", production), ("timing.json", timing)):
+            f = src / name
+            existed[name] = f.exists()
+            if existed[name]:
+                backups[name] = f.read_bytes()
+            f.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        rendered = {}
         for scene in production["scenes"]:
             sid = scene["id"]
             start, frames, offs = starts[sid]
@@ -407,8 +424,19 @@ def main() -> int:
                 b64 = base64.b64encode(jpg.read_bytes()).decode()
                 rendered[sid].append((label, abs_frame / FPS, b64))
     finally:
-        for name, blob in backups.items():
-            (src / name).write_bytes(blob)
+        try:
+            # 復元: 元々あったファイルは内容を戻し、無かったファイルは削除して元に戻す
+            for name in ("production.json", "timing.json"):
+                if name not in existed:
+                    continue
+                f = src / name
+                if existed[name]:
+                    f.write_bytes(backups[name])
+                else:
+                    f.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
 
     rows = []
     unit_no = 0
