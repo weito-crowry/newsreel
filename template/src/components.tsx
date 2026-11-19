@@ -181,12 +181,16 @@ const estTextW = (text: string, fs: number, halfRatio = 0.52): number => {
   return w;
 };
 
-/* 明示改行（\n）＋自動折り返しを見込んだ行数の概算 */
-const estLines = (text: string | null | undefined, fs: number, innerW: number): number => {
+/* 明示改行（\n）＋自動折り返しを見込んだ行数の概算。
+   halfRatio は半角文字の幅係数。既定 0.52 は通常の本文用。
+   太字の英字（エンドカードの出典ラベル等）は実測でこれより広いため、
+   呼び出し側で大きめの値を渡す（2026-11-17: 0.52 のままだと出典3件の
+   カードが 33px で収まると誤判定し、実描画で3件目が見切れた）。 */
+const estLines = (text: string | null | undefined, fs: number, innerW: number, halfRatio = 0.52): number => {
   if (text == null) return 0;
   let lines = 0;
   for (const ln of text.split("\n"))
-    lines += Math.max(1, Math.ceil(estTextW(ln, fs) / Math.max(1, innerW)));
+    lines += Math.max(1, Math.ceil(estTextW(ln, fs, halfRatio) / Math.max(1, innerW)));
   return lines;
 };
 
@@ -2260,7 +2264,10 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
   if (layout === "sources") {
     // 出典のみのエンドカード: 上側は YouTube のエンドスクリーン（次のおすすめ等）が
     // 重なる場所として空けておき、出典は下側に置く（2026-10-26 田中さんの指定）。
-    // 出典の文字量が多いと下端（1080）をはみ出して URL が見切れるため、収まる範囲で
+    // 動画内に出すのは媒体名＋記事タイトルだけで、URL は画面に出さない
+    // （2026-11-15 田中さんの指定。URL は投稿パックの概要欄に載せる。
+    //   データの sources.url は概要欄生成のために保持し、ここでは描画しない）。
+    // 出典の文字量が多いと下端（1080）をはみ出して見切れるため、収まる範囲で
     // フォントを段階的に小さくする（2026-11-07 追加。ラボ セット5 の実例を受けたもの）。
     // 上端 620 の指定は変えず、縮小だけで収める。
     const srcAvail = 1080 - 620 - 44; // 見出し込みで使える高さ
@@ -2271,7 +2278,7 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
       srcFs = fs;
       srcLh = lh;
       const lines =
-        sources.reduce((a, s) => a + estLines(s.label, fs, 1500) + estLines(s.url || " ", fs, 1500), 0) +
+        sources.reduce((a, s) => a + estLines(s.label, fs, 1500, 0.6), 0) +
         Math.max(0, sources.length - 1);
       if (srcHeadH + lines * fs * lh <= srcAvail) break;
     }
@@ -2285,8 +2292,6 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
                 <React.Fragment key={i}>
                   {i > 0 && <br />}
                   {s.label}
-                  <br />
-                  <span style={{ color: "#9fc6ff" }}>{s.url}</span>
                   {i < sources.length - 1 && <br />}
                 </React.Fragment>
               ))}
@@ -2320,8 +2325,6 @@ const EndCard: React.FC<{ def: SceneDef }> = ({ def }) => {
               <React.Fragment key={i}>
                 {i > 0 && <br />}
                 {s.label}
-                <br />
-                <span style={{ color: "#9fc6ff" }}>{s.url}</span>
                 {i < sources.length - 1 && <br />}
               </React.Fragment>
             ))}
